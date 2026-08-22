@@ -25,10 +25,49 @@ export const seedSupplyBatches = [
   { id: "spb_008", supplierId: "sup_oats", itemName: "Rolled oats", quantity: 200, unit: "kg", unitCost: 0.92, totalCost: 184, dateReceived: daysAgo(7), amountPaid: 0, notes: "Balance owed" },
 ];
 
-export const seedSkus = [
-  { id: "sku_classic_1kg", name: "Classic granola", flavor: "Classic", packSize: "1kg", unit: "unit" },
-  { id: "sku_classic_500g", name: "Classic granola", flavor: "Classic", packSize: "500g", unit: "unit" },
-  { id: "sku_berry_500g", name: "Berry crunch granola", flavor: "Berry crunch", packSize: "500g", unit: "unit" },
+// Products now carry a recipe: quantityPerUnit is how much of that material
+// goes into ONE finished unit. Production auto-scales this by the batch
+// output quantity to suggest inputs.
+export const seedProducts = [
+  {
+    id: "prod_classic_1kg",
+    name: "Classic granola",
+    flavor: "Classic",
+    packSize: "1kg",
+    unit: "unit",
+    ingredients: [
+      { itemName: "Rolled oats", quantityPerUnit: 0.65, unit: "kg" },
+      { itemName: "Honey", quantityPerUnit: 0.09, unit: "l" },
+      { itemName: "Sunflower oil", quantityPerUnit: 0.045, unit: "l" },
+      { itemName: "Almonds", quantityPerUnit: 0.11, unit: "kg" },
+    ],
+  },
+  {
+    id: "prod_classic_500g",
+    name: "Classic granola",
+    flavor: "Classic",
+    packSize: "500g",
+    unit: "unit",
+    ingredients: [
+      { itemName: "Rolled oats", quantityPerUnit: 0.325, unit: "kg" },
+      { itemName: "Honey", quantityPerUnit: 0.045, unit: "l" },
+      { itemName: "Sunflower oil", quantityPerUnit: 0.0225, unit: "l" },
+      { itemName: "Almonds", quantityPerUnit: 0.055, unit: "kg" },
+    ],
+  },
+  {
+    id: "prod_berry_500g",
+    name: "Berry crunch granola",
+    flavor: "Berry crunch",
+    packSize: "500g",
+    unit: "unit",
+    ingredients: [
+      { itemName: "Rolled oats", quantityPerUnit: 0.28, unit: "kg" },
+      { itemName: "Honey", quantityPerUnit: 0.043, unit: "l" },
+      { itemName: "Dried cranberries", quantityPerUnit: 0.086, unit: "kg" },
+      { itemName: "Sunflower oil", quantityPerUnit: 0.021, unit: "l" },
+    ],
+  },
 ];
 
 export const seedProductionRuns = [
@@ -43,11 +82,15 @@ export const seedProductionRuns = [
       { itemName: "Almonds", quantity: 10, unit: "kg" },
     ],
     outputs: [
-      { skuId: "sku_classic_1kg", quantity: 40, unit: "unit" },
-      { skuId: "sku_classic_500g", quantity: 60, unit: "unit" },
+      { productId: "prod_classic_1kg", quantity: 40, unit: "unit" },
+      { productId: "prod_classic_500g", quantity: 60, unit: "unit" },
     ],
     laborCost: 45,
-    overheadCost: 20,
+    overheadCosts: [
+      { category: "Electricity", cost: 12 },
+      { category: "Water", cost: 5 },
+      { category: "Fuel / gas", cost: 3 },
+    ],
     notes: "Morning shift",
   },
   {
@@ -61,10 +104,13 @@ export const seedProductionRuns = [
       { itemName: "Sunflower oil", quantity: 3, unit: "l" },
     ],
     outputs: [
-      { skuId: "sku_berry_500g", quantity: 70, unit: "unit" },
+      { productId: "prod_berry_500g", quantity: 70, unit: "unit" },
     ],
     laborCost: 38,
-    overheadCost: 15,
+    overheadCosts: [
+      { category: "Electricity", cost: 10 },
+      { category: "Water", cost: 4 },
+    ],
     notes: "Berry crunch flavour split from the classic line",
   },
   {
@@ -78,11 +124,14 @@ export const seedProductionRuns = [
       { itemName: "Sunflower oil", quantity: 3, unit: "l" },
     ],
     outputs: [
-      { skuId: "sku_classic_1kg", quantity: 30, unit: "unit" },
-      { skuId: "sku_classic_500g", quantity: 45, unit: "unit" },
+      { productId: "prod_classic_1kg", quantity: 30, unit: "unit" },
+      { productId: "prod_classic_500g", quantity: 45, unit: "unit" },
     ],
     laborCost: 42,
-    overheadCost: 18,
+    overheadCosts: [
+      { category: "Electricity", cost: 11 },
+      { category: "Maintenance", cost: 6 },
+    ],
     notes: "",
   },
 ];
@@ -95,24 +144,64 @@ export const seedCustomers = [
   { id: "cus_005", name: "Ifeoma Chukwu", gender: "Female", profession: "Nutritionist", segment: "Retail", phone: "", createdAt: daysAgo(10) },
 ];
 
-export const seedSales = [
-  { id: "sal_001", date: daysAgo(19), customerId: "cus_001", skuId: "sku_classic_1kg", quantity: 10, unit: "unit", unitPrice: 9.5, paymentMode: "Transfer" },
-  { id: "sal_002", date: daysAgo(17), customerId: "cus_002", skuId: "sku_classic_500g", quantity: 6, unit: "unit", unitPrice: 5.2, paymentMode: "Cash" },
-  { id: "sal_003", date: daysAgo(11), customerId: "cus_003", skuId: "sku_berry_500g", quantity: 8, unit: "unit", unitPrice: 5.8, paymentMode: "POS" },
-  { id: "sal_004", date: daysAgo(9), customerId: "cus_004", skuId: "sku_classic_1kg", quantity: 20, unit: "unit", unitPrice: 9.0, paymentMode: "Credit" },
-  { id: "sal_005", date: daysAgo(6), customerId: "cus_005", skuId: "sku_berry_500g", quantity: 5, unit: "unit", unitPrice: 5.8, paymentMode: "Transfer" },
-  { id: "sal_006", date: daysAgo(3), customerId: "cus_001", skuId: "sku_classic_500g", quantity: 12, unit: "unit", unitPrice: 5.2, paymentMode: "Transfer" },
+// Sales are now orders with one or more line items, so one checkout can
+// cover several different products.
+export const seedSalesOrders = [
+  {
+    id: "ord_001", date: daysAgo(19), customerId: "cus_001", paymentMode: "Transfer",
+    items: [{ productId: "prod_classic_1kg", quantity: 10, unitPrice: 9.5 }],
+  },
+  {
+    id: "ord_002", date: daysAgo(17), customerId: "cus_002", paymentMode: "Cash",
+    items: [
+      { productId: "prod_classic_500g", quantity: 6, unitPrice: 5.2 },
+      { productId: "prod_berry_500g", quantity: 3, unitPrice: 5.8 },
+    ],
+  },
+  { id: "ord_003", date: daysAgo(11), customerId: "cus_003", paymentMode: "POS",
+    items: [{ productId: "prod_berry_500g", quantity: 8, unitPrice: 5.8 }],
+  },
+  { id: "ord_004", date: daysAgo(9), customerId: "cus_004", paymentMode: "Credit",
+    items: [
+      { productId: "prod_classic_1kg", quantity: 20, unitPrice: 9.0 },
+      { productId: "prod_classic_500g", quantity: 10, unitPrice: 5.1 },
+    ],
+  },
+  { id: "ord_005", date: daysAgo(6), customerId: "cus_005", paymentMode: "Transfer",
+    items: [{ productId: "prod_berry_500g", quantity: 5, unitPrice: 5.8 }],
+  },
+  { id: "ord_006", date: daysAgo(3), customerId: "cus_001", paymentMode: "Transfer",
+    items: [{ productId: "prod_classic_500g", quantity: 12, unitPrice: 5.2 }],
+  },
 ];
+
+export const ROLES = [
+  { id: "owner", label: "Owner (full access)" },
+  { id: "supply", label: "Supply officer" },
+  { id: "production_inventory", label: "Production & inventory" },
+  { id: "sales_customers", label: "Sales & customers" },
+  { id: "customer", label: "Customer" },
+];
+
+export const DEFAULT_THEMES = {
+  owner: { mode: "dark", accent: "#D97A3E", accentAlt: "#4F8862" },
+  supply: { mode: "dark", accent: "#D97A3E", accentAlt: "#4F8862" },
+  production_inventory: { mode: "dark", accent: "#C9A227", accentAlt: "#4F8862" },
+  sales_customers: { mode: "dark", accent: "#4F8862", accentAlt: "#D97A3E" },
+  customer: { mode: "light", accent: "#4F8862", accentAlt: "#D97A3E" },
+};
 
 export function buildSeed() {
   return {
     suppliers: seedSuppliers,
     supplyBatches: seedSupplyBatches,
-    skus: seedSkus,
+    products: seedProducts,
     productionRuns: seedProductionRuns,
     customers: seedCustomers,
-    sales: seedSales,
+    salesOrders: seedSalesOrders,
     spoilage: [],
     customUnits: {},
+    activeRole: "owner",
+    themes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
   };
 }

@@ -1,14 +1,46 @@
 import { toBase, baseUnitOf, convert } from "./uom";
 
-// Parse a pack size string like "500g", "1kg", "250ml" into grams (or ml)
-// as a plain number, so we can weight cost allocation across differently
-// sized SKUs from the same production run.
+// Parse a pack size string like "500g", "1kg", "250ml" into a base-unit
+// number, so we can weight cost allocation across differently sized
+// products from the same production run.
 export function parsePackSize(packSize) {
   const match = String(packSize).match(/([\d.]+)\s*([a-zA-Z]+)/);
   if (!match) return 1;
   const [, num, unit] = match;
   const base = toBase(parseFloat(num), unit.toLowerCase());
   return base || parseFloat(num);
+}
+
+// Scale a product's recipe (quantity per one unit) up to the batch size
+// being produced. Used to auto-fill the materials list on a production run.
+export function scaleRecipe(product, outputQty) {
+  if (!product?.ingredients) return [];
+  return product.ingredients.map((ing) => ({
+    itemName: ing.itemName,
+    quantity: round4(ing.quantityPerUnit * outputQty),
+    unit: ing.unit,
+  }));
+}
+
+function round4(n) {
+  return Math.round(n * 10000) / 10000;
+}
+
+// Combine scaled recipes from several output lines into one materials list,
+// summing quantities where the same material is needed by more than one
+// output product in the same run.
+export function suggestInputsForOutputs(outputs, productById) {
+  const byKey = {};
+  for (const o of outputs) {
+    const product = productById[o.productId];
+    if (!product || !o.quantity) continue;
+    for (const row of scaleRecipe(product, o.quantity)) {
+      const key = `${row.itemName}::${row.unit}`;
+      if (!byKey[key]) byKey[key] = { ...row };
+      else byKey[key].quantity = round4(byKey[key].quantity + row.quantity);
+    }
+  }
+  return Object.values(byKey);
 }
 
 // Materials ledger: what's been supplied, what's been consumed in
@@ -61,27 +93,30 @@ export function materialLedger(data) {
   });
 }
 
-// Cost of a single production run, allocated across its output SKUs by
+// Cost of a single production run, allocated across its output products by
 // weight share (a 1kg pack absorbs ~2x the cost of a 500g pack from the
-// same batch) rather than split evenly per unit.
-export function productionRunCosts(run, ledger, skuById) {
+// same batch) rather than split evenly per unit. Overhead is now a list of
+// categorised costs (electricity, water, etc), summed into the total.
+export function productionRunCosts(run, ledger, productById) {
   const ledgerByItem = Object.fromEntries(ledger.map((r) => [r.itemName, r]));
   const materialCost = run.inputs.reduce((sum, input) => {
     const row = ledgerByItem[input.itemName];
     const qtyBase = toBase(input.quantity, input.unit);
     return sum + qtyBase * (row?.avgUnitCostBase || 0);
   }, 0);
-  const totalRunCost = materialCost + (run.laborCost || 0) + (run.overheadCost || 0);
+  const overheadTotal = (run.overheadCosts || []).reduce((s, o) => s + (o.cost || 0), 0);
+  const totalRunCost = materialCost + (run.laborCost || 0) + overheadTotal;
 
   const outputsWithWeight = run.outputs.map((o) => {
-    const sku = skuById[o.skuId];
-    const packWeight = parsePackSize(sku?.packSize || "1unit");
-    return { ...o, sku, weightShare: packWeight * o.quantity };
+    const product = productById[o.productId];
+    const packWeight = parsePackSize(product?.packSize || "1unit");
+    return { ...o, product, weightShare: packWeight * o.quantity };
   });
   const totalWeight = outputsWithWeight.reduce((s, o) => s + o.weightShare, 0) || 1;
 
   return {
     materialCost,
+    overheadTotal,
     totalRunCost,
     outputs: outputsWithWeight.map((o) => ({
       ...o,
@@ -92,41 +127,43 @@ export function productionRunCosts(run, ledger, skuById) {
 }
 
 // Finished-goods inventory: quantity on hand and weighted-average cost per
-// unit for every SKU, built from every production run that made it, minus
-// what's been sold or marked as spoiled.
+// unit for every product, built from every production run that made it,
+// minus what's been sold or marked as spoiled.
 export function finishedGoodsInventory(data) {
-  const { skus, productionRuns, sales, spoilage } = data;
+  const { products, productionRuns, salesOrders, spoilage } = data;
   const ledger = materialLedger(data);
-  const skuById = Object.fromEntries(skus.map((s) => [s.id, s]));
+  const productById = Object.fromEntries(products.map((s) => [s.id, s]));
 
   const produced = {};
   for (const run of productionRuns) {
-    const { outputs } = productionRunCosts(run, ledger, skuById);
+    const { outputs } = productionRunCosts(run, ledger, productById);
     for (const o of outputs) {
-      if (!produced[o.skuId]) produced[o.skuId] = { qty: 0, cost: 0 };
-      produced[o.skuId].qty += o.quantity;
-      produced[o.skuId].cost += o.costAllocated;
+      if (!produced[o.productId]) produced[o.productId] = { qty: 0, cost: 0 };
+      produced[o.productId].qty += o.quantity;
+      produced[o.productId].cost += o.costAllocated;
     }
   }
 
   const sold = {};
-  for (const s of sales) {
-    sold[s.skuId] = (sold[s.skuId] || 0) + s.quantity;
+  for (const order of salesOrders) {
+    for (const item of order.items || []) {
+      sold[item.productId] = (sold[item.productId] || 0) + item.quantity;
+    }
   }
   const spoiled = {};
   for (const s of spoilage || []) {
-    spoiled[s.skuId] = (spoiled[s.skuId] || 0) + s.quantity;
+    spoiled[s.productId] = (spoiled[s.productId] || 0) + s.quantity;
   }
 
-  return skus.map((sku) => {
-    const p = produced[sku.id] || { qty: 0, cost: 0 };
+  return products.map((product) => {
+    const p = produced[product.id] || { qty: 0, cost: 0 };
     const avgCostPerUnit = p.qty > 0 ? p.cost / p.qty : 0;
-    const qtyOnHand = p.qty - (sold[sku.id] || 0) - (spoiled[sku.id] || 0);
+    const qtyOnHand = p.qty - (sold[product.id] || 0) - (spoiled[product.id] || 0);
     return {
-      sku,
+      product,
       producedQty: p.qty,
-      soldQty: sold[sku.id] || 0,
-      spoiledQty: spoiled[sku.id] || 0,
+      soldQty: sold[product.id] || 0,
+      spoiledQty: spoiled[product.id] || 0,
       qtyOnHand,
       avgCostPerUnit,
       valueOnHand: qtyOnHand * avgCostPerUnit,
@@ -134,43 +171,61 @@ export function finishedGoodsInventory(data) {
   });
 }
 
-// Sales enriched with cost-of-goods and margin, using each SKU's current
-// weighted-average production cost.
+// Flattens every sales order into one row per line item, enriched with
+// cost-of-goods and margin using each product's current weighted-average
+// production cost.
 export function salesWithMargin(data) {
   const inv = finishedGoodsInventory(data);
-  const costBySku = Object.fromEntries(inv.map((r) => [r.sku.id, r.avgCostPerUnit]));
+  const costByProduct = Object.fromEntries(inv.map((r) => [r.product.id, r.avgCostPerUnit]));
   const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
-  const skuById = Object.fromEntries(data.skus.map((s) => [s.id, s]));
-  return data.sales.map((s) => {
-    const costPerUnit = costBySku[s.skuId] || 0;
-    const revenue = s.quantity * s.unitPrice;
-    const cogs = s.quantity * costPerUnit;
-    return {
-      ...s,
-      sku: skuById[s.skuId],
-      customer: customerById[s.customerId],
-      costPerUnit,
-      revenue,
-      cogs,
-      margin: revenue - cogs,
-      marginPct: revenue > 0 ? ((revenue - cogs) / revenue) * 100 : 0,
-    };
-  });
+  const productById = Object.fromEntries(data.products.map((s) => [s.id, s]));
+
+  const rows = [];
+  for (const order of data.salesOrders) {
+    for (const item of order.items || []) {
+      const costPerUnit = costByProduct[item.productId] || 0;
+      const revenue = item.quantity * item.unitPrice;
+      const cogs = item.quantity * costPerUnit;
+      rows.push({
+        id: `${order.id}::${item.productId}`,
+        orderId: order.id,
+        date: order.date,
+        paymentMode: order.paymentMode,
+        customer: customerById[order.customerId],
+        customerId: order.customerId,
+        product: productById[item.productId],
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        costPerUnit,
+        revenue,
+        cogs,
+        margin: revenue - cogs,
+        marginPct: revenue > 0 ? ((revenue - cogs) / revenue) * 100 : 0,
+      });
+    }
+  }
+  return rows;
 }
 
 export function customerAnalytics(data) {
-  const sales = salesWithMargin(data);
+  const lines = salesWithMargin(data);
   const byCustomer = {};
-  for (const s of sales) {
+  const orderIdsByCustomer = {};
+  for (const s of lines) {
     if (!s.customer) continue;
     const id = s.customer.id;
     if (!byCustomer[id]) {
       byCustomer[id] = { customer: s.customer, orders: 0, revenue: 0, margin: 0, lastDate: s.date };
+      orderIdsByCustomer[id] = new Set();
     }
-    byCustomer[id].orders += 1;
+    orderIdsByCustomer[id].add(s.orderId);
     byCustomer[id].revenue += s.revenue;
     byCustomer[id].margin += s.margin;
     if (s.date > byCustomer[id].lastDate) byCustomer[id].lastDate = s.date;
+  }
+  for (const id of Object.keys(byCustomer)) {
+    byCustomer[id].orders = orderIdsByCustomer[id].size;
   }
   return data.customers.map((c) => byCustomer[c.id] || { customer: c, orders: 0, revenue: 0, margin: 0, lastDate: null });
 }
@@ -184,18 +239,19 @@ export function inRange(dateStr, from, to) {
 
 export function overviewMetrics(data, range = {}) {
   const { from, to } = range;
-  const sales = salesWithMargin(data).filter((s) => inRange(s.date, from, to));
+  const lines = salesWithMargin(data).filter((s) => inRange(s.date, from, to));
   const ledger = materialLedger(data);
   const inv = finishedGoodsInventory(data);
 
-  const totalRevenue = sales.reduce((s, r) => s + r.revenue, 0);
-  const totalCogs = sales.reduce((s, r) => s + r.cogs, 0);
+  const totalRevenue = lines.reduce((s, r) => s + r.revenue, 0);
+  const totalCogs = lines.reduce((s, r) => s + r.cogs, 0);
   const grossProfit = totalRevenue - totalCogs;
   const grossMarginPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
-  const activeCustomers = new Set(sales.map((s) => s.customerId)).size;
+  const activeCustomers = new Set(lines.map((s) => s.customerId)).size;
   const inventoryValue = inv.reduce((s, r) => s + r.valueOnHand, 0) + ledger.reduce((s, r) => s + r.valueRemaining, 0);
   const payables = ledger.reduce((s, r) => s + r.payable, 0);
-  const unitsSold = sales.reduce((s, r) => s + r.quantity, 0);
+  const unitsSold = lines.reduce((s, r) => s + r.quantity, 0);
+  const orderCount = new Set(lines.map((r) => r.orderId)).size;
 
   return {
     totalRevenue,
@@ -206,6 +262,6 @@ export function overviewMetrics(data, range = {}) {
     inventoryValue,
     payables,
     unitsSold,
-    orderCount: sales.length,
+    orderCount,
   };
 }

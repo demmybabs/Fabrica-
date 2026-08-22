@@ -87,7 +87,7 @@ export default function Overview() {
               <tr key={s.id} className="border-b border-ink-700/60 text-ink-200">
                 <td className="py-2 pr-4 chip">{s.date}</td>
                 <td className="py-2 pr-4">{s.customer?.name || "—"}</td>
-                <td className="py-2 pr-4">{s.sku ? `${s.sku.name} · ${s.sku.packSize}` : "—"}</td>
+                <td className="py-2 pr-4">{s.product ? `${s.product.name} · ${s.product.packSize}` : "—"}</td>
                 <td className="py-2 pr-4 text-right chip">{s.quantity}</td>
                 <td className="py-2 pr-4 text-right chip">{money(s.revenue)}</td>
                 <td className="py-2 pr-4 text-right chip text-moss-400">{money(s.margin)}</td>

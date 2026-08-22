@@ -2,11 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --accent: #D97A3E;
+  --accent-alt: #4F8862;
+}
+
 html { background: #12171B; }
 body {
   font-family: 'IBM Plex Sans', sans-serif;
   color: #EEF0F1;
 }
+
+/* Light mode: swap the app's dark surfaces for light ones. Brand accent
+   colors (--accent, --accent-alt) stay whatever the user picked. */
+html.light { background: #F7F8F8; }
+html.light body { color: #232C32; }
+html.light .bg-ink-950 { background-color: #F0F1EC !important; }
+html.light .bg-ink-900 { background-color: #FFFFFF !important; }
+html.light .bg-ink-800 { background-color: #FFFFFF !important; }
+html.light .border-ink-700 { border-color: #DEDFDA !important; }
+html.light .text-ink-50 { color: #1A2126 !important; }
+html.light .text-ink-100 { color: #232C32 !important; }
+html.light .text-ink-200 { color: #323D45 !important; }
+html.light .text-ink-400 { color: #6B756B !important; }
+html.light .text-ink-500 { color: #7C867C !important; }
+html.light .text-ink-600 { color: #97A097 !important; }
+html.light .hover\:bg-ink-800\/60:hover { background-color: #F0F1EC !important; }
+
+.accent-text { color: var(--accent); }
+.accent-bg { background-color: var(--accent); }
+.accent-border { border-color: var(--accent); }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #323D45; border-radius: 4px; }
