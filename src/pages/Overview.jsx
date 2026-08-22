@@ -1,16 +1,13 @@
 import { useState } from "react";
-import { useApp } from "../lib/AppContext";
+import { useApp, useMoney } from "../lib/AppContext";
 import { overviewMetrics, materialLedger, finishedGoodsInventory, salesWithMargin, inRange } from "../lib/calc";
 import StatCard from "../components/StatCard";
 import DateRangeFilter from "../components/DateRangeFilter";
 import Panel from "../components/Panel";
 
-function money(n) {
-  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 export default function Overview() {
   const { data } = useApp();
+  const money = useMoney();
   const [range, setRange] = useState({ from: "", to: "" });
   const m = overviewMetrics(data, range);
   const ledger = materialLedger(data);

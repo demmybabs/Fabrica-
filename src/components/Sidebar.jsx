@@ -1,6 +1,5 @@
 import { NavLink } from "react-router-dom";
 import { useApp } from "../lib/AppContext";
-import { ROLES } from "../data/seed";
 import { canAccess } from "../lib/access";
 
 const allLinks = [
@@ -17,26 +16,21 @@ const allLinks = [
 ];
 
 export default function Sidebar() {
-  const { data, setActiveRole } = useApp();
+  const { data } = useApp();
   const role = data.activeRole;
   const links = allLinks.filter((l) => canAccess(role, l.to) || l.to === "/settings");
+  const branding = data.branding || { name: "Fabrica", tagline: "production line control" };
 
   return (
     <aside className="w-56 shrink-0 border-r border-ink-700 bg-ink-900 min-h-screen flex flex-col">
-      <div className="px-5 pt-6 pb-5 border-b border-ink-700">
-        <div className="font-display text-lg font-semibold tracking-tight text-ink-50">Fabrica</div>
-        <div className="chip text-ink-400 mt-1">production line control</div>
-      </div>
-
-      <div className="px-5 py-3 border-b border-ink-700">
-        <div className="chip text-ink-500 uppercase mb-1">Viewing as</div>
-        <select
-          className="w-full bg-ink-800 border border-ink-700 rounded px-2 py-1.5 text-xs text-ink-200 focus:outline-none focus:border-[var(--accent)]"
-          value={role}
-          onChange={(e) => setActiveRole(e.target.value)}
-        >
-          {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-        </select>
+      <div className="px-5 pt-6 pb-5 border-b border-ink-700 flex items-center gap-3">
+        {branding.logoDataUrl ? (
+          <img src={branding.logoDataUrl} alt="" className="w-8 h-8 rounded object-cover" />
+        ) : null}
+        <div>
+          <div className="font-display text-lg font-semibold tracking-tight text-ink-50">{branding.name}</div>
+          <div className="chip text-ink-400 mt-0.5">{branding.tagline}</div>
+        </div>
       </div>
 
       <nav className="flex-1 py-3">

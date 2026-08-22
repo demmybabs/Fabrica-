@@ -1,18 +1,15 @@
 import { useState } from "react";
-import { useApp } from "../lib/AppContext";
+import { useApp, useMoney } from "../lib/AppContext";
 import { materialLedger } from "../lib/calc";
 import { allUnits } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
-function money(n) {
-  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 const blank = { supplierId: "", itemName: "", quantity: "", unit: "kg", unitCost: "", dateReceived: "", amountPaid: "", notes: "" };
 
 export default function Supply() {
   const { data, add, remove } = useApp();
+  const money = useMoney();
   const [form, setForm] = useState(blank);
   const [open, setOpen] = useState(false);
   const ledger = materialLedger(data);

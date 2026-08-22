@@ -1,10 +1,6 @@
 import { useApp } from "../lib/AppContext";
 import Panel from "../components/Panel";
 
-function money(n) {
-  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 export default function CustomerPortal() {
   const { data } = useApp();
 

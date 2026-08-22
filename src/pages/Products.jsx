@@ -4,7 +4,7 @@ import { allUnits } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
-const blankProduct = { name: "", flavor: "", packSize: "" };
+const blankProduct = { name: "", flavor: "", packSize: "", imageDataUrl: null };
 const blankIngredient = { itemName: "", quantityPerUnit: "", unit: "kg" };
 
 export default function Products() {
@@ -22,6 +22,14 @@ export default function Products() {
   ])];
 
   const updateIngRow = (i, patch) => setIngredients(ingredients.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  const onImageChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, imageDataUrl: reader.result }));
+    reader.readAsDataURL(file);
+  };
 
   const submit = (e) => {
     e.preventDefault();
@@ -68,6 +76,12 @@ export default function Products() {
               <Field label="Flavor / variant"><input className={inputCls} value={form.flavor} onChange={(e) => setForm({ ...form, flavor: e.target.value })} placeholder="e.g. Spicy" /></Field>
               <Field label="Pack size"><input className={inputCls} value={form.packSize} onChange={(e) => setForm({ ...form, packSize: e.target.value })} placeholder="e.g. 1kg" required /></Field>
             </div>
+            <Field label="Product image">
+              <div className="flex items-center gap-3">
+                {form.imageDataUrl && <img src={form.imageDataUrl} alt="" className="w-12 h-12 rounded object-cover border border-ink-700" />}
+                <input type="file" accept="image/*" className={inputCls} onChange={onImageChange} />
+              </div>
+            </Field>
             <div>
               <div className="chip text-ink-400 uppercase mb-2">Recipe — quantity needed per single unit produced</div>
               <div className="space-y-2">
@@ -98,9 +112,12 @@ export default function Products() {
           {data.products.map((product) => (
             <div key={product.id} className="border border-ink-700 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
-                <div>
-                  <span className="font-display text-sm font-semibold text-ink-100">{product.name}</span>
-                  <span className="chip text-ink-500 ml-2">{product.flavor} · {product.packSize}</span>
+                <div className="flex items-center gap-3">
+                  {product.imageDataUrl && <img src={product.imageDataUrl} alt="" className="w-10 h-10 rounded object-cover border border-ink-700" />}
+                  <div>
+                    <span className="font-display text-sm font-semibold text-ink-100">{product.name}</span>
+                    <span className="chip text-ink-500 ml-2">{product.flavor} · {product.packSize}</span>
+                  </div>
                 </div>
                 <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("products", product.id)}>remove product</button>
               </div>

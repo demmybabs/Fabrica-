@@ -1,12 +1,12 @@
 import { createContext, useContext } from "react";
 import { useLocalState } from "./storage";
-import { buildSeed, DEFAULT_THEMES } from "../data/seed";
+import { buildSeed, buildEmpty, DEFAULT_THEMES } from "../data/seed";
 import { makeId } from "./id";
 
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
-  const [data, setData] = useLocalState("fabrica_data_v2", buildSeed());
+  const [data, setData] = useLocalState("fabrica_data_v3", buildSeed());
 
   const add = (key, record) => {
     const id = makeId(key.slice(0, 3));
@@ -40,10 +40,13 @@ export function AppProvider({ children }) {
     }));
   };
   const resetToSeed = () => setData(buildSeed());
+  const clearAllData = () => setData(buildEmpty());
+  const setCurrency = (currency) => setData((d) => ({ ...d, currency }));
+  const setBranding = (patch) => setData((d) => ({ ...d, branding: { ...d.branding, ...patch } }));
 
   return (
     <AppContext.Provider
-      value={{ data, add, remove, update, setCustomUnits, setActiveRole, updateTheme, addIngredientToRecipe, resetToSeed }}
+      value={{ data, add, remove, update, setCustomUnits, setActiveRole, updateTheme, addIngredientToRecipe, resetToSeed, clearAllData, setCurrency, setBranding }}
     >
       {children}
     </AppContext.Provider>
@@ -54,4 +57,10 @@ export function useApp() {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error("useApp must be used within AppProvider");
   return ctx;
+}
+
+export function useMoney() {
+  const { data } = useApp();
+  const symbol = data.currency?.symbol || "₦";
+  return (amount) => `${symbol}${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }

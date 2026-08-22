@@ -1,18 +1,15 @@
 import { useState } from "react";
-import { useApp } from "../lib/AppContext";
+import { useApp, useMoney } from "../lib/AppContext";
 import { customerAnalytics } from "../lib/calc";
 import Panel from "../components/Panel";
 import StatCard from "../components/StatCard";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
-function money(n) {
-  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 const blank = { name: "", gender: "", profession: "", segment: "Retail" };
 
 export default function Customers() {
   const { data, add, remove } = useApp();
+  const money = useMoney();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blank);
 

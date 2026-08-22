@@ -1,18 +1,15 @@
 import { useState } from "react";
-import { useApp } from "../lib/AppContext";
+import { useApp, useMoney } from "../lib/AppContext";
 import { salesWithMargin, finishedGoodsInventory } from "../lib/calc";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
-
-function money(n) {
-  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 const paymentModes = ["Cash", "POS", "Transfer", "Credit"];
 const blankItem = { productId: "", quantity: "", unitPrice: "" };
 
 export default function Sales() {
   const { data, add, remove } = useApp();
+  const money = useMoney();
   const [open, setOpen] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [date, setDate] = useState("");

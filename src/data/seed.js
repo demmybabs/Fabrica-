@@ -203,5 +203,34 @@ export function buildSeed() {
     customUnits: {},
     activeRole: "owner",
     themes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
+    branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
+    currency: { code: "NGN", symbol: "₦" },
   };
 }
+
+export function buildEmpty() {
+  return {
+    suppliers: [],
+    supplyBatches: [],
+    products: [],
+    productionRuns: [],
+    customers: [],
+    salesOrders: [],
+    spoilage: [],
+    customUnits: {},
+    activeRole: "owner",
+    themes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
+    branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
+    currency: { code: "NGN", symbol: "₦" },
+  };
+}
+
+export const CURRENCIES = [
+  { code: "NGN", symbol: "₦" },
+  { code: "USD", symbol: "$" },
+  { code: "GBP", symbol: "£" },
+  { code: "EUR", symbol: "€" },
+  { code: "GHS", symbol: "GH₵" },
+  { code: "KES", symbol: "KSh" },
+  { code: "ZAR", symbol: "R" },
+];

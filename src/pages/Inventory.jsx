@@ -1,17 +1,14 @@
 import { useState } from "react";
-import { useApp } from "../lib/AppContext";
+import { useApp, useMoney } from "../lib/AppContext";
 import { finishedGoodsInventory, materialLedger } from "../lib/calc";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
-
-function money(n) {
-  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 const blankSpoil = { productId: "", quantity: "", date: "", reason: "" };
 
 export default function Inventory() {
   const { data, add, remove } = useApp();
+  const money = useMoney();
   const [openSpoil, setOpenSpoil] = useState(false);
   const [spoilForm, setSpoilForm] = useState(blankSpoil);
 
@@ -80,7 +77,12 @@ export default function Inventory() {
           <tbody>
             {inv.map((r) => (
               <tr key={r.product.id} className="border-b border-ink-700/60 text-ink-200">
-                <td className="py-2 pr-4">{r.product.name} · {r.product.flavor} · {r.product.packSize}</td>
+                <td className="py-2 pr-4">
+                  <div className="flex items-center gap-2">
+                    {r.product.imageDataUrl && <img src={r.product.imageDataUrl} alt="" className="w-8 h-8 rounded object-cover border border-ink-700" />}
+                    <span>{r.product.name} · {r.product.flavor} · {r.product.packSize}</span>
+                  </div>
+                </td>
                 <td className="py-2 pr-4 text-right chip">{r.producedQty}</td>
                 <td className="py-2 pr-4 text-right chip">{r.soldQty}</td>
                 <td className="py-2 pr-4 text-right chip">{r.spoiledQty}</td>

@@ -1,13 +1,9 @@
 import { useState } from "react";
-import { useApp } from "../lib/AppContext";
+import { useApp, useMoney } from "../lib/AppContext";
 import { materialLedger, productionRunCosts, suggestInputsForOutputs } from "../lib/calc";
 import { allUnits } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
-
-function money(n) {
-  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 const blankInput = { itemName: "", quantity: "", unit: "kg" };
 const blankOutput = { productId: "", quantity: "" };
@@ -15,6 +11,7 @@ const overheadPresets = ["Electricity", "Water", "Fuel / gas", "Maintenance", "P
 
 export default function Production() {
   const { data, add, remove, addIngredientToRecipe } = useApp();
+  const money = useMoney();
   const [open, setOpen] = useState(false);
   const [batchCode, setBatchCode] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
