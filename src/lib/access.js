@@ -3,8 +3,8 @@
 // security policies in src/data/schema.sql, which apply once the app is
 // wired to a live backend (see README).
 export const ROLE_ACCESS = {
-  owner: ["/", "/suppliers", "/supply", "/products", "/production", "/inventory", "/sales", "/customers", "/settings"],
-  supply: ["/suppliers", "/supply"],
+  owner: ["/", "/supply", "/products", "/production", "/inventory", "/sales", "/customers", "/settings"],
+  supply: ["/supply"],
   production_inventory: ["/products", "/production", "/inventory"],
   sales_customers: ["/sales", "/customers"],
   customer: ["/customer-portal"],

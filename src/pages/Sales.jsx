@@ -26,6 +26,14 @@ export default function Sales() {
   const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
 
   const updateItem = (i, patch) => setItems(items.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const productById = Object.fromEntries(data.products.map((p) => [p.id, p]));
+  const onProductSelect = (i, productId) => {
+    const product = productById[productId];
+    updateItem(i, {
+      productId,
+      unitPrice: items[i].unitPrice || (product?.defaultPrice ? String(product.defaultPrice) : ""),
+    });
+  };
 
   const orderTotal = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0), 0);
 
@@ -44,10 +52,11 @@ export default function Sales() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="chip text-ink-400 uppercase">Module 04</div>
           <h1 className="font-display text-xl font-semibold text-ink-50">Sales</h1>
+          <p className="text-sm text-ink-400 mt-1 max-w-lg">Record what a customer bought — one order can hold several different products.</p>
         </div>
         <button className={btnCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Record a sale"}</button>
       </div>
@@ -72,10 +81,10 @@ export default function Sales() {
 
             <div>
               <div className="chip text-ink-400 uppercase mb-2">Items in this order</div>
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-x-auto">
                 {items.map((row, i) => (
-                  <div key={i} className="grid grid-cols-9 gap-2 items-center">
-                    <select className={`${inputCls} col-span-4`} value={row.productId} onChange={(e) => updateItem(i, { productId: e.target.value })}>
+                  <div key={i} className="grid grid-cols-9 gap-2 items-center min-w-[640px]">
+                    <select className={`${inputCls} col-span-4`} value={row.productId} onChange={(e) => onProductSelect(i, e.target.value)}>
                       <option value="">Product…</option>
                       {data.products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.packSize} — {onHandByProduct[p.id] ?? 0} on hand</option>)}
                     </select>
@@ -120,7 +129,8 @@ export default function Sales() {
                     <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("salesOrders", orderId)}>remove order</button>
                   </div>
                 </div>
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+<table className="w-full text-sm" style={{minWidth: "600px"}}>
                   <thead>
                     <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                       <th className="py-1.5 pr-4">Product</th>
@@ -142,6 +152,7 @@ export default function Sales() {
                     ))}
                   </tbody>
                 </table>
+</div>
               </div>
             );
           })}

@@ -25,15 +25,16 @@ export default function Inventory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="chip text-ink-400 uppercase">Module 03</div>
           <h1 className="font-display text-xl font-semibold text-ink-50">Inventory</h1>
+          <p className="text-sm text-ink-400 mt-1 max-w-lg">What's actually on the shelf right now — finished goods and raw materials, valued automatically.</p>
         </div>
         <button className={btnGhostCls} onClick={() => setOpenSpoil((o) => !o)}>{openSpoil ? "Cancel" : "+ Log spoilage"}</button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-ink-800 border border-ink-700 rounded-lg px-5 py-4">
           <div className="chip text-ink-400 uppercase">Finished goods value</div>
           <div className="font-display text-2xl font-semibold text-brass-400 mt-1.5">{money(finishedValue)}</div>
@@ -46,7 +47,7 @@ export default function Inventory() {
 
       {openSpoil && (
         <Panel title="Log spoilage / write-off" eyebrow="Removes from inventory without a sale">
-          <form onSubmit={submitSpoil} className="grid grid-cols-4 gap-4">
+          <form onSubmit={submitSpoil} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <Field label="Product">
               <select className={inputCls} value={spoilForm.productId} onChange={(e) => setSpoilForm({ ...spoilForm, productId: e.target.value })} required>
                 <option value="">Select…</option>
@@ -62,7 +63,8 @@ export default function Inventory() {
       )}
 
       <Panel title="Finished goods" eyebrow="What production has made, minus sold and spoiled — add or edit products in the Products module">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+<table className="w-full text-sm" style={{minWidth: "600px"}}>
           <thead>
             <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
               <th className="py-2 pr-4">Product</th>
@@ -93,10 +95,12 @@ export default function Inventory() {
             ))}
           </tbody>
         </table>
+</div>
       </Panel>
 
       <Panel title="Raw materials" eyebrow="What's left in the store room">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+<table className="w-full text-sm" style={{minWidth: "600px"}}>
           <thead>
             <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
               <th className="py-2 pr-4">Material</th>
@@ -114,6 +118,7 @@ export default function Inventory() {
             ))}
           </tbody>
         </table>
+</div>
       </Panel>
     </div>
   );

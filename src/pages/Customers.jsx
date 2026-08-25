@@ -34,15 +34,16 @@ export default function Customers() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="chip text-ink-400 uppercase">Module 05</div>
           <h1 className="font-display text-xl font-semibold text-ink-50">Customers</h1>
+          <p className="text-sm text-ink-400 mt-1 max-w-lg">Everyone who buys from you, with performance and spending patterns per customer.</p>
         </div>
         <button className={btnCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Onboard a customer"}</button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard label="Best customer" value={best?.customer.name || "—"} sub={best ? money(best.revenue) + " lifetime" : ""} tone="moss" />
         <StatCard label="Top-spending gender" value={topGender ? topGender[0] : "—"} sub={topGender ? money(topGender[1]) : ""} />
         <StatCard label="Top-spending profession" value={topProfession ? topProfession[0] : "—"} sub={topProfession ? money(topProfession[1]) : ""} />
@@ -50,7 +51,7 @@ export default function Customers() {
 
       {open && (
         <Panel title="New customer" eyebrow="Personalize their profile for analytics">
-          <form onSubmit={submit} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <Field label="Name"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></Field>
             <Field label="Gender"><input className={inputCls} value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} /></Field>
             <Field label="Profession"><input className={inputCls} value={form.profession} onChange={(e) => setForm({ ...form, profession: e.target.value })} /></Field>
@@ -68,7 +69,8 @@ export default function Customers() {
       )}
 
       <Panel title="Customer performance" eyebrow="Ranked by lifetime revenue">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+<table className="w-full text-sm" style={{minWidth: "600px"}}>
           <thead>
             <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
               <th className="py-2 pr-4">Customer</th>
@@ -96,6 +98,7 @@ export default function Customers() {
             ))}
           </tbody>
         </table>
+</div>
       </Panel>
     </div>
   );

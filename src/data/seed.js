@@ -35,6 +35,7 @@ export const seedProducts = [
     flavor: "Classic",
     packSize: "1kg",
     unit: "unit",
+    defaultPrice: 9.5,
     ingredients: [
       { itemName: "Rolled oats", quantityPerUnit: 0.65, unit: "kg" },
       { itemName: "Honey", quantityPerUnit: 0.09, unit: "l" },
@@ -48,6 +49,7 @@ export const seedProducts = [
     flavor: "Classic",
     packSize: "500g",
     unit: "unit",
+    defaultPrice: 5.2,
     ingredients: [
       { itemName: "Rolled oats", quantityPerUnit: 0.325, unit: "kg" },
       { itemName: "Honey", quantityPerUnit: 0.045, unit: "l" },
@@ -61,6 +63,7 @@ export const seedProducts = [
     flavor: "Berry crunch",
     packSize: "500g",
     unit: "unit",
+    defaultPrice: 5.8,
     ingredients: [
       { itemName: "Rolled oats", quantityPerUnit: 0.28, unit: "kg" },
       { itemName: "Honey", quantityPerUnit: 0.043, unit: "l" },

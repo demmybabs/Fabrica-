@@ -128,7 +128,7 @@ export default function Settings() {
       </Panel>
 
       <Panel title="Currency" eyebrow="Applies to every figure across the app">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <Field label="Preset">
             <select
               className={inputCls}
@@ -149,7 +149,8 @@ export default function Settings() {
       </Panel>
 
       <Panel title="Units of measure" eyebrow="Built-in conversions, customizable">
-        <table className="w-full text-sm mb-5">
+        <div className="overflow-x-auto">
+<table className="w-full text-sm mb-5" style={{minWidth: "600px"}}>
           <thead>
             <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
               <th className="py-2 pr-4">Category</th>
@@ -181,8 +182,9 @@ export default function Settings() {
             )}
           </tbody>
         </table>
+</div>
 
-        <form onSubmit={addUnit} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <form onSubmit={addUnit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <Field label="Category">
             <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
               <option value="weight">weight (base: g)</option>

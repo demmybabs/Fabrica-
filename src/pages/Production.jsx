@@ -79,10 +79,11 @@ export default function Production() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="chip text-ink-400 uppercase">Module 02</div>
           <h1 className="font-display text-xl font-semibold text-ink-50">Production</h1>
+          <p className="text-sm text-ink-400 mt-1 max-w-lg">Log a batch: pick what you're making, materials auto-fill from the recipe, cost is split across every product it yields.</p>
         </div>
         <button className={btnCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Log a run"}</button>
       </div>
@@ -90,7 +91,7 @@ export default function Production() {
       {open && (
         <Panel title="New production run" eyebrow="Pick products first — materials auto-fill from their recipe">
           <form onSubmit={submit} className="space-y-5">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <Field label="Batch code"><input className={inputCls} value={batchCode} onChange={(e) => setBatchCode(e.target.value)} placeholder="auto if blank" /></Field>
               <Field label="Date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
               <Field label="Labor cost"><input type="number" step="0.01" className={inputCls} value={laborCost} onChange={(e) => setLaborCost(e.target.value)} /></Field>
@@ -98,9 +99,9 @@ export default function Production() {
 
             <div>
               <div className="chip text-ink-400 uppercase mb-2">Products produced (this run can yield several, in different flavors or sizes)</div>
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-x-auto">
                 {outputs.map((row, i) => (
-                  <div key={i} className="grid grid-cols-8 gap-2 items-center">
+                  <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
                     <select className={`${inputCls} col-span-5`} value={row.productId} onChange={(e) => onOutputChange(i, { productId: e.target.value })}>
                       <option value="">Product…</option>
                       {data.products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.flavor} · {p.packSize}</option>)}
@@ -120,9 +121,9 @@ export default function Production() {
                   <button type="button" className="chip text-[var(--accent)]" onClick={() => { setInputsTouched(false); applyRecipeSuggestion(outputs); }}>re-sync from recipe</button>
                 )}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-x-auto">
                 {inputs.map((row, i) => (
-                  <div key={i} className="grid grid-cols-8 gap-2 items-center">
+                  <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
                     <select className={`${inputCls} col-span-3`} value={row.itemName} onChange={(e) => { updateRow(inputs, setInputs, i, { itemName: e.target.value }); setInputsTouched(true); }}>
                       <option value="">Material…</option>
                       {ledger.map((m) => <option key={m.itemName} value={m.itemName}>{m.itemName} ({m.remainingBase.toFixed(1)} {m.baseUnit} left)</option>)}
@@ -144,9 +145,9 @@ export default function Production() {
 
             <div>
               <div className="chip text-ink-400 uppercase mb-2">Overhead costs — split by category</div>
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-x-auto">
                 {overheads.map((row, i) => (
-                  <div key={i} className="grid grid-cols-8 gap-2 items-center">
+                  <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
                     <select className={`${inputCls} col-span-4`} value={row.category} onChange={(e) => updateRow(overheads, setOverheads, i, { category: e.target.value })}>
                       {overheadPresets.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
@@ -190,7 +191,8 @@ export default function Production() {
                     {run.overheadCosts.map((o) => `${o.category}: ${money(o.cost)}`).join("  ·  ")}
                   </div>
                 )}
-                <table className="w-full text-sm mt-2">
+                <div className="overflow-x-auto">
+<table className="w-full text-sm mt-2" style={{minWidth: "600px"}}>
                   <thead>
                     <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                       <th className="py-1.5 pr-4">Product</th>
@@ -210,6 +212,7 @@ export default function Production() {
                     ))}
                   </tbody>
                 </table>
+</div>
               </div>
             );
           })}

@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { useApp } from "../lib/AppContext";
+import { useApp, useMoney } from "../lib/AppContext";
 import { allUnits } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
-const blankProduct = { name: "", flavor: "", packSize: "", imageDataUrl: null };
+const blankProduct = { name: "", flavor: "", packSize: "", defaultPrice: "", imageDataUrl: null };
 const blankIngredient = { itemName: "", quantityPerUnit: "", unit: "kg" };
 
 export default function Products() {
   const { data, add, update, remove } = useApp();
+  const money = useMoney();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blankProduct);
   const [ingredients, setIngredients] = useState([{ ...blankIngredient }]);
@@ -36,6 +37,7 @@ export default function Products() {
     add("products", {
       ...form,
       unit: "unit",
+      defaultPrice: parseFloat(form.defaultPrice) || 0,
       ingredients: ingredients
         .filter((i) => i.itemName && i.quantityPerUnit)
         .map((i) => ({ ...i, quantityPerUnit: parseFloat(i.quantityPerUnit) || 0 })),
@@ -60,10 +62,11 @@ export default function Products() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="chip text-ink-400 uppercase">Module 02a</div>
           <h1 className="font-display text-xl font-semibold text-ink-50">Products &amp; recipes</h1>
+          <p className="text-sm text-ink-400 mt-1 max-w-lg">Define what you make and what goes into it — Production uses this to auto-fill materials for every run.</p>
         </div>
         <button className={btnCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ New product"}</button>
       </div>
@@ -71,10 +74,11 @@ export default function Products() {
       {open && (
         <Panel title="New product" eyebrow="Define it once — production will auto-fill materials from this recipe">
           <form onSubmit={submit} className="space-y-5">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <Field label="Product name"><input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Granola" required /></Field>
               <Field label="Flavor / variant"><input className={inputCls} value={form.flavor} onChange={(e) => setForm({ ...form, flavor: e.target.value })} placeholder="e.g. Spicy" /></Field>
               <Field label="Pack size"><input className={inputCls} value={form.packSize} onChange={(e) => setForm({ ...form, packSize: e.target.value })} placeholder="e.g. 1kg" required /></Field>
+              <Field label="Selling price"><input type="number" step="0.01" className={inputCls} value={form.defaultPrice} onChange={(e) => setForm({ ...form, defaultPrice: e.target.value })} placeholder="e.g. 9.50" /></Field>
             </div>
             <Field label="Product image">
               <div className="flex items-center gap-3">
@@ -84,9 +88,9 @@ export default function Products() {
             </Field>
             <div>
               <div className="chip text-ink-400 uppercase mb-2">Recipe — quantity needed per single unit produced</div>
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-x-auto">
                 {ingredients.map((row, i) => (
-                  <div key={i} className="grid grid-cols-8 gap-2 items-center">
+                  <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
                     <input list="materials" className={`${inputCls} col-span-3`} placeholder="Ingredient" value={row.itemName} onChange={(e) => updateIngRow(i, { itemName: e.target.value })} />
                     <input type="number" step="0.0001" className={`${inputCls} col-span-2`} placeholder="qty / unit" value={row.quantityPerUnit} onChange={(e) => updateIngRow(i, { quantityPerUnit: e.target.value })} />
                     <select className={`${inputCls} col-span-2`} value={row.unit} onChange={(e) => updateIngRow(i, { unit: e.target.value })}>
@@ -117,11 +121,13 @@ export default function Products() {
                   <div>
                     <span className="font-display text-sm font-semibold text-ink-100">{product.name}</span>
                     <span className="chip text-ink-500 ml-2">{product.flavor} · {product.packSize}</span>
+                    <span className="chip text-[var(--accent)] ml-2">{money(product.defaultPrice)}</span>
                   </div>
                 </div>
                 <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("products", product.id)}>remove product</button>
               </div>
-              <table className="w-full text-sm mb-3">
+              <div className="overflow-x-auto">
+<table className="w-full text-sm mb-3" style={{minWidth: "600px"}}>
                 <thead>
                   <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                     <th className="py-1.5 pr-4">Ingredient</th>
@@ -141,7 +147,8 @@ export default function Products() {
                   ))}
                 </tbody>
               </table>
-              <div className="grid grid-cols-8 gap-2 items-center">
+</div>
+              <div className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
                 <input list="materials" className={`${inputCls} col-span-3`} placeholder="Add ingredient…" value={newIngredient[product.id]?.itemName || ""} onChange={(e) => setNewIngredient({ ...newIngredient, [product.id]: { ...newIngredient[product.id], itemName: e.target.value } })} />
                 <input type="number" step="0.0001" className={`${inputCls} col-span-2`} placeholder="qty / unit" value={newIngredient[product.id]?.quantityPerUnit || ""} onChange={(e) => setNewIngredient({ ...newIngredient, [product.id]: { ...newIngredient[product.id], quantityPerUnit: e.target.value } })} />
                 <select className={`${inputCls} col-span-2`} value={newIngredient[product.id]?.unit || "kg"} onChange={(e) => setNewIngredient({ ...newIngredient, [product.id]: { ...newIngredient[product.id], unit: e.target.value } })}>

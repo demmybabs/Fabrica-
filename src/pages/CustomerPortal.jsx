@@ -24,7 +24,8 @@ export default function CustomerPortal() {
       </Panel>
 
       <Panel title="Product catalog" eyebrow="What a customer could browse and order">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+<table className="w-full text-sm" style={{minWidth: "600px"}}>
           <thead>
             <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
               <th className="py-2 pr-4">Product</th>
@@ -40,6 +41,7 @@ export default function CustomerPortal() {
             ))}
           </tbody>
         </table>
+</div>
       </Panel>
     </div>
   );

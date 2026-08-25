@@ -27,7 +27,7 @@ export default function Overview() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="chip text-ink-400 uppercase">Module 00</div>
           <h1 className="font-display text-xl font-semibold text-ink-50">Overview</h1>
@@ -56,7 +56,7 @@ export default function Overview() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Revenue in range" value={money(m.totalRevenue)} tone="moss" />
         <StatCard label="Cost of goods sold" value={money(m.totalCogs)} tone="rust" />
         <StatCard label="Gross profit" value={money(m.grossProfit)} sub={`${m.grossMarginPct.toFixed(1)}% margin`} tone="brass" />
@@ -68,7 +68,8 @@ export default function Overview() {
       </div>
 
       <Panel title="Recent sales" eyebrow="Feed">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+<table className="w-full text-sm" style={{minWidth: "600px"}}>
           <thead>
             <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
               <th className="py-2 pr-4">Date</th>
@@ -95,6 +96,7 @@ export default function Overview() {
             )}
           </tbody>
         </table>
+</div>
       </Panel>
     </div>
   );

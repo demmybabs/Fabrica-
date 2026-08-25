@@ -3,7 +3,6 @@ import { AppProvider } from "./lib/AppContext";
 import ThemeProvider from "./lib/ThemeProvider";
 import Sidebar from "./components/Sidebar";
 import Overview from "./pages/Overview";
-import Suppliers from "./pages/Suppliers";
 import Supply from "./pages/Supply";
 import Products from "./pages/Products";
 import Production from "./pages/Production";
@@ -18,12 +17,11 @@ export default function App() {
     <AppProvider>
       <ThemeProvider>
         <HashRouter>
-          <div className="flex min-h-screen bg-ink-950 text-ink-100 font-body">
+          <div className="flex flex-col md:flex-row min-h-screen bg-ink-950 text-ink-100 font-body">
             <Sidebar />
-            <main className="flex-1 p-8 max-w-6xl">
+            <main className="flex-1 p-4 md:p-8 max-w-6xl w-full">
               <Routes>
                 <Route path="/" element={<Overview />} />
-                <Route path="/suppliers" element={<Suppliers />} />
                 <Route path="/supply" element={<Supply />} />
                 <Route path="/products" element={<Products />} />
                 <Route path="/production" element={<Production />} />
