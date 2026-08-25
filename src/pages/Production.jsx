@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
-import { materialLedger, productionRunCosts, suggestInputsForOutputs } from "../lib/calc";
+import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation } from "../lib/calc";
 import { allUnits } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
@@ -21,6 +21,7 @@ export default function Production() {
   const [laborCost, setLaborCost] = useState("");
   const [overheads, setOverheads] = useState([{ category: "Electricity", cost: "" }]);
   const [notes, setNotes] = useState("");
+  const [expandedRun, setExpandedRun] = useState(null);
 
   const ledger = materialLedger(data);
   const units = allUnits(data.customUnits);
@@ -30,10 +31,7 @@ export default function Production() {
 
   const applyRecipeSuggestion = (nextOutputs) => {
     if (inputsTouched) return; // don't clobber manual edits
-    const suggested = suggestInputsForOutputs(
-      nextOutputs.filter((o) => o.productId && o.quantity),
-      productById
-    );
+    const suggested = suggestInputsForOutputs(nextOutputs.filter((o) => o.productId), productById);
     if (suggested.length > 0) setInputs(suggested);
   };
 
@@ -53,12 +51,7 @@ export default function Production() {
   const saveInputToRecipe = (input) => {
     const target = outputs.find((o) => o.productId);
     if (!target) return;
-    const outputQty = parseFloat(target.quantity) || 1;
-    addIngredientToRecipe(target.productId, {
-      itemName: input.itemName,
-      quantityPerUnit: (parseFloat(input.quantity) || 0) / outputQty,
-      unit: input.unit,
-    });
+    addIngredientToRecipe(target.productId, input.itemName);
   };
 
   const submit = (e) => {
@@ -89,7 +82,7 @@ export default function Production() {
       </div>
 
       {open && (
-        <Panel title="New production run" eyebrow="Pick products first — materials auto-fill from their recipe">
+        <Panel title="New production run" eyebrow="Pick products first — their ingredient lists suggest the materials below">
           <form onSubmit={submit} className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <Field label="Batch code"><input className={inputCls} value={batchCode} onChange={(e) => setBatchCode(e.target.value)} placeholder="auto if blank" /></Field>
@@ -115,8 +108,8 @@ export default function Production() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="chip text-ink-400 uppercase">Materials taken from supply — auto-filled from the recipe(s) above, editable</div>
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <div className="chip text-ink-400 uppercase">Materials actually used — enter real quantities; the system will estimate the split per product</div>
                 {inputsTouched && (
                   <button type="button" className="chip text-[var(--accent)]" onClick={() => { setInputsTouched(false); applyRecipeSuggestion(outputs); }}>re-sync from recipe</button>
                 )}
@@ -128,7 +121,7 @@ export default function Production() {
                       <option value="">Material…</option>
                       {ledger.map((m) => <option key={m.itemName} value={m.itemName}>{m.itemName} ({m.remainingBase.toFixed(1)} {m.baseUnit} left)</option>)}
                     </select>
-                    <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="qty" value={row.quantity} onChange={(e) => { updateRow(inputs, setInputs, i, { quantity: e.target.value }); setInputsTouched(true); }} />
+                    <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="qty used" value={row.quantity} onChange={(e) => { updateRow(inputs, setInputs, i, { quantity: e.target.value }); setInputsTouched(true); }} />
                     <select className={`${inputCls} col-span-2`} value={row.unit} onChange={(e) => { updateRow(inputs, setInputs, i, { unit: e.target.value }); setInputsTouched(true); }}>
                       {units.map((u) => <option key={u.unit} value={u.unit}>{u.unit}</option>)}
                     </select>
@@ -169,10 +162,12 @@ export default function Production() {
         </Panel>
       )}
 
-      <Panel title="Run log" eyebrow="Cost allocated by pack weight, not split evenly">
+      <Panel title="Run log" eyebrow="Cost allocated by pack weight — expand a run to see estimated ingredient usage per product">
         <div className="space-y-4">
           {[...data.productionRuns].reverse().map((run) => {
             const { totalRunCost, outputs: outs, materialCost, overheadTotal } = productionRunCosts(run, ledger, productById);
+            const isExpanded = expandedRun === run.id;
+            const allocation = isExpanded ? estimateIngredientAllocation(run, productById) : null;
             return (
               <div key={run.id} className="border border-ink-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -192,27 +187,64 @@ export default function Production() {
                   </div>
                 )}
                 <div className="overflow-x-auto">
-<table className="w-full text-sm mt-2" style={{minWidth: "600px"}}>
-                  <thead>
-                    <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
-                      <th className="py-1.5 pr-4">Product</th>
-                      <th className="py-1.5 pr-4 text-right">Units out</th>
-                      <th className="py-1.5 pr-4 text-right">Cost allocated</th>
-                      <th className="py-1.5 pr-4 text-right">Cost / unit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {outs.map((o) => (
-                      <tr key={o.productId} className="text-ink-200">
-                        <td className="py-1.5 pr-4">{o.product?.name} · {o.product?.packSize}</td>
-                        <td className="py-1.5 pr-4 text-right chip">{o.quantity}</td>
-                        <td className="py-1.5 pr-4 text-right chip">{money(o.costAllocated)}</td>
-                        <td className="py-1.5 pr-4 text-right chip text-brass-400">{money(o.costPerUnit)}</td>
+                  <table className="w-full text-sm mt-2" style={{ minWidth: "500px" }}>
+                    <thead>
+                      <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
+                        <th className="py-1.5 pr-4">Product</th>
+                        <th className="py-1.5 pr-4 text-right">Units out</th>
+                        <th className="py-1.5 pr-4 text-right">Cost allocated</th>
+                        <th className="py-1.5 pr-4 text-right">Cost / unit</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-</div>
+                    </thead>
+                    <tbody>
+                      {outs.map((o) => (
+                        <tr key={o.productId} className="text-ink-200">
+                          <td className="py-1.5 pr-4">{o.product?.name} · {o.product?.packSize}</td>
+                          <td className="py-1.5 pr-4 text-right chip">{o.quantity}</td>
+                          <td className="py-1.5 pr-4 text-right chip">{money(o.costAllocated)}</td>
+                          <td className="py-1.5 pr-4 text-right chip text-brass-400">{money(o.costPerUnit)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  className="chip text-[var(--accent)] mt-3"
+                  onClick={() => setExpandedRun(isExpanded ? null : run.id)}
+                >
+                  {isExpanded ? "Hide" : "Show"} estimated ingredient usage per product
+                </button>
+                {isExpanded && allocation && (
+                  <div className="mt-3 border-t border-ink-700 pt-3 overflow-x-auto">
+                    <table className="w-full text-sm" style={{ minWidth: "500px" }}>
+                      <thead>
+                        <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
+                          <th className="py-1.5 pr-4">Material</th>
+                          <th className="py-1.5 pr-4">Estimated split</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(allocation).map(([itemName, rows]) => (
+                          <tr key={itemName} className="text-ink-200 align-top">
+                            <td className="py-1.5 pr-4">{itemName}</td>
+                            <td className="py-1.5 pr-4">
+                              {rows.map((r) => (
+                                <div key={r.productId} className="chip text-ink-300">
+                                  {r.product?.name} ({r.product?.packSize}): {r.quantity.toFixed(2)} {r.unit}
+                                </div>
+                              ))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="text-xs text-ink-500 mt-2">
+                      Estimated by splitting each material across the products that list it as an
+                      ingredient, proportional to how much of each was produced in this run — not
+                      a direct measurement.
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })}

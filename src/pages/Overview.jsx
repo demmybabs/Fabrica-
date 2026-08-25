@@ -1,18 +1,30 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
-import { overviewMetrics, materialLedger, finishedGoodsInventory, salesWithMargin, inRange } from "../lib/calc";
+import { overviewMetrics, materialLedger, finishedGoodsInventory, salesWithMargin, inRange, salesTrend, performanceByAttribute } from "../lib/calc";
 import StatCard from "../components/StatCard";
 import DateRangeFilter from "../components/DateRangeFilter";
 import Panel from "../components/Panel";
+import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+
+const chartColors = { revenue: "#D97A3E", grossProfit: "#4F8862", marginPct: "#C9A227", segment: "#4F8862" };
+
+const periods = [
+  { id: "weekly", label: "Weekly" },
+  { id: "monthly", label: "Monthly" },
+  { id: "yearly", label: "Yearly" },
+];
 
 export default function Overview() {
   const { data } = useApp();
   const money = useMoney();
   const [range, setRange] = useState({ from: "", to: "" });
+  const [groupBy, setGroupBy] = useState("monthly");
   const m = overviewMetrics(data, range);
   const ledger = materialLedger(data);
   const inv = finishedGoodsInventory(data);
   const salesInRange = salesWithMargin(data).filter((s) => inRange(s.date, range.from, range.to));
+  const trend = salesTrend(data, range, groupBy);
+  const bySegment = performanceByAttribute(data, "segment");
 
   const rawValue = ledger.reduce((s, r) => s + r.valueRemaining, 0);
   const finishedValue = inv.reduce((s, r) => s + r.valueOnHand, 0);
@@ -67,36 +79,110 @@ export default function Overview() {
         <StatCard label="Production runs" value={data.productionRuns.length} sub="lifetime" />
       </div>
 
+      <Panel
+        title="Sales, gross profit & margin over time"
+        eyebrow="Trend for the date range above"
+        actions={
+          <div className="flex gap-1.5">
+            {periods.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setGroupBy(p.id)}
+                className={`chip px-2.5 py-1 rounded border ${groupBy === p.id ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10" : "border-ink-700 text-ink-400"}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        {trend.length === 0 ? (
+          <p className="text-ink-500 text-center py-10">No sales in this range yet.</p>
+        ) : (
+          <div style={{ width: "100%", height: 280 }}>
+            <ResponsiveContainer>
+              <LineChart data={trend} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#323D45" />
+                <XAxis dataKey="label" stroke="#8A959B" fontSize={11} />
+                <YAxis stroke="#8A959B" fontSize={11} />
+                <Tooltip contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }} labelStyle={{ color: "#EEF0F1" }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="revenue" name="Revenue" stroke={chartColors.revenue} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="grossProfit" name="Gross profit" stroke={chartColors.grossProfit} strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Panel>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Panel title="Gross margin %" eyebrow="Same period as the trend above">
+          {trend.length === 0 ? (
+            <p className="text-ink-500 text-center py-10">No sales in this range yet.</p>
+          ) : (
+            <div style={{ width: "100%", height: 220 }}>
+              <ResponsiveContainer>
+                <LineChart data={trend} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#323D45" />
+                  <XAxis dataKey="label" stroke="#8A959B" fontSize={11} />
+                  <YAxis stroke="#8A959B" fontSize={11} unit="%" />
+                  <Tooltip contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }} labelStyle={{ color: "#EEF0F1" }} />
+                  <Line type="monotone" dataKey="marginPct" name="Margin %" stroke={chartColors.marginPct} strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Revenue by customer segment" eyebrow="Lifetime to date">
+          {bySegment.length === 0 ? (
+            <p className="text-ink-500 text-center py-10">No sales yet.</p>
+          ) : (
+            <div style={{ width: "100%", height: 220 }}>
+              <ResponsiveContainer>
+                <BarChart data={bySegment} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#323D45" />
+                  <XAxis dataKey="key" stroke="#8A959B" fontSize={11} />
+                  <YAxis stroke="#8A959B" fontSize={11} />
+                  <Tooltip contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }} labelStyle={{ color: "#EEF0F1" }} />
+                  <Bar dataKey="revenue" name="Revenue" fill={chartColors.segment} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Panel>
+      </div>
+
       <Panel title="Recent sales" eyebrow="Feed">
         <div className="overflow-x-auto">
-<table className="w-full text-sm" style={{minWidth: "600px"}}>
-          <thead>
-            <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
-              <th className="py-2 pr-4">Date</th>
-              <th className="py-2 pr-4">Customer</th>
-              <th className="py-2 pr-4">SKU</th>
-              <th className="py-2 pr-4 text-right">Qty</th>
-              <th className="py-2 pr-4 text-right">Revenue</th>
-              <th className="py-2 pr-4 text-right">Margin</th>
-            </tr>
-          </thead>
-          <tbody>
-            {salesInRange.slice(-8).reverse().map((s) => (
-              <tr key={s.id} className="border-b border-ink-700/60 text-ink-200">
-                <td className="py-2 pr-4 chip">{s.date}</td>
-                <td className="py-2 pr-4">{s.customer?.name || "—"}</td>
-                <td className="py-2 pr-4">{s.product ? `${s.product.name} · ${s.product.packSize}` : "—"}</td>
-                <td className="py-2 pr-4 text-right chip">{s.quantity}</td>
-                <td className="py-2 pr-4 text-right chip">{money(s.revenue)}</td>
-                <td className="py-2 pr-4 text-right chip text-moss-400">{money(s.margin)}</td>
+          <table className="w-full text-sm" style={{ minWidth: "600px" }}>
+            <thead>
+              <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
+                <th className="py-2 pr-4">Date</th>
+                <th className="py-2 pr-4">Customer</th>
+                <th className="py-2 pr-4">Product</th>
+                <th className="py-2 pr-4 text-right">Qty</th>
+                <th className="py-2 pr-4 text-right">Revenue</th>
+                <th className="py-2 pr-4 text-right">Margin</th>
               </tr>
-            ))}
-            {salesInRange.length === 0 && (
-              <tr><td colSpan={6} className="py-6 text-center text-ink-500">No sales in this range.</td></tr>
-            )}
-          </tbody>
-        </table>
-</div>
+            </thead>
+            <tbody>
+              {salesInRange.slice(-8).reverse().map((s) => (
+                <tr key={s.id} className="border-b border-ink-700/60 text-ink-200">
+                  <td className="py-2 pr-4 chip">{s.date}</td>
+                  <td className="py-2 pr-4">{s.customer?.name || "—"}</td>
+                  <td className="py-2 pr-4">{s.product ? `${s.product.name} · ${s.product.packSize}` : "—"}</td>
+                  <td className="py-2 pr-4 text-right chip">{s.quantity}</td>
+                  <td className="py-2 pr-4 text-right chip">{money(s.revenue)}</td>
+                  <td className="py-2 pr-4 text-right chip text-moss-400">{money(s.margin)}</td>
+                </tr>
+              ))}
+              {salesInRange.length === 0 && (
+                <tr><td colSpan={6} className="py-6 text-center text-ink-500">No sales in this range.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Panel>
     </div>
   );

@@ -25,9 +25,8 @@ export const seedSupplyBatches = [
   { id: "spb_008", supplierId: "sup_oats", itemName: "Rolled oats", quantity: 200, unit: "kg", unitCost: 0.92, totalCost: 184, dateReceived: daysAgo(7), amountPaid: 0, notes: "Balance owed" },
 ];
 
-// Products now carry a recipe: quantityPerUnit is how much of that material
-// goes into ONE finished unit. Production auto-scales this by the batch
-// output quantity to suggest inputs.
+// Products carry a recipe: just the ingredient names needed. Quantities are
+// not stored per product — Production estimates actual usage per run.
 export const seedProducts = [
   {
     id: "prod_classic_1kg",
@@ -35,12 +34,12 @@ export const seedProducts = [
     flavor: "Classic",
     packSize: "1kg",
     unit: "unit",
-    defaultPrice: 9.5,
+    pricesBySegment: { Retail: 9.5, Wholesale: 8.2 },
     ingredients: [
-      { itemName: "Rolled oats", quantityPerUnit: 0.65, unit: "kg" },
-      { itemName: "Honey", quantityPerUnit: 0.09, unit: "l" },
-      { itemName: "Sunflower oil", quantityPerUnit: 0.045, unit: "l" },
-      { itemName: "Almonds", quantityPerUnit: 0.11, unit: "kg" },
+      { itemName: "Rolled oats" },
+      { itemName: "Honey" },
+      { itemName: "Sunflower oil" },
+      { itemName: "Almonds" },
     ],
   },
   {
@@ -49,12 +48,12 @@ export const seedProducts = [
     flavor: "Classic",
     packSize: "500g",
     unit: "unit",
-    defaultPrice: 5.2,
+    pricesBySegment: { Retail: 5.2, Wholesale: 4.5 },
     ingredients: [
-      { itemName: "Rolled oats", quantityPerUnit: 0.325, unit: "kg" },
-      { itemName: "Honey", quantityPerUnit: 0.045, unit: "l" },
-      { itemName: "Sunflower oil", quantityPerUnit: 0.0225, unit: "l" },
-      { itemName: "Almonds", quantityPerUnit: 0.055, unit: "kg" },
+      { itemName: "Rolled oats" },
+      { itemName: "Honey" },
+      { itemName: "Sunflower oil" },
+      { itemName: "Almonds" },
     ],
   },
   {
@@ -63,12 +62,12 @@ export const seedProducts = [
     flavor: "Berry crunch",
     packSize: "500g",
     unit: "unit",
-    defaultPrice: 5.8,
+    pricesBySegment: { Retail: 5.8, Wholesale: 5.0 },
     ingredients: [
-      { itemName: "Rolled oats", quantityPerUnit: 0.28, unit: "kg" },
-      { itemName: "Honey", quantityPerUnit: 0.043, unit: "l" },
-      { itemName: "Dried cranberries", quantityPerUnit: 0.086, unit: "kg" },
-      { itemName: "Sunflower oil", quantityPerUnit: 0.021, unit: "l" },
+      { itemName: "Rolled oats" },
+      { itemName: "Honey" },
+      { itemName: "Dried cranberries" },
+      { itemName: "Sunflower oil" },
     ],
   },
 ];
@@ -208,6 +207,7 @@ export function buildSeed() {
     themes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
+    segments: ["Retail", "Wholesale"],
   };
 }
 
@@ -225,6 +225,7 @@ export function buildEmpty() {
     themes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
+    segments: ["Retail", "Wholesale"],
   };
 }
 

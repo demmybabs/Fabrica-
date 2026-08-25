@@ -29,9 +29,13 @@ export default function Sales() {
   const productById = Object.fromEntries(data.products.map((p) => [p.id, p]));
   const onProductSelect = (i, productId) => {
     const product = productById[productId];
+    const customer = customerById[customerId];
+    const segmentPrice = customer ? product?.pricesBySegment?.[customer.segment] : undefined;
+    const fallbackPrice = product?.pricesBySegment ? Object.values(product.pricesBySegment)[0] : undefined;
+    const suggested = segmentPrice ?? fallbackPrice;
     updateItem(i, {
       productId,
-      unitPrice: items[i].unitPrice || (product?.defaultPrice ? String(product.defaultPrice) : ""),
+      unitPrice: items[i].unitPrice || (suggested !== undefined ? String(suggested) : ""),
     });
   };
 
@@ -80,7 +84,7 @@ export default function Sales() {
             </div>
 
             <div>
-              <div className="chip text-ink-400 uppercase mb-2">Items in this order</div>
+              <div className="chip text-ink-400 uppercase mb-2">Items in this order — price auto-fills from the product's price for this customer's segment</div>
               <div className="space-y-2 overflow-x-auto">
                 {items.map((row, i) => (
                   <div key={i} className="grid grid-cols-9 gap-2 items-center min-w-[640px]">

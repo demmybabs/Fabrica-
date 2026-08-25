@@ -11,36 +11,50 @@ export function parsePackSize(packSize) {
   return base || parseFloat(num);
 }
 
-// Scale a product's recipe (quantity per one unit) up to the batch size
-// being produced. Used to auto-fill the materials list on a production run.
-export function scaleRecipe(product, outputQty) {
-  if (!product?.ingredients) return [];
-  return product.ingredients.map((ing) => ({
-    itemName: ing.itemName,
-    quantity: round4(ing.quantityPerUnit * outputQty),
-    unit: ing.unit,
-  }));
-}
-
-function round4(n) {
-  return Math.round(n * 10000) / 10000;
-}
-
-// Combine scaled recipes from several output lines into one materials list,
-// summing quantities where the same material is needed by more than one
-// output product in the same run.
+// Suggests which materials to list on a production run, based on the union
+// of ingredient names across the products selected as outputs. Quantities
+// are left for the user to enter — the recipe only tracks which materials
+// go into a product, not how much (see estimateIngredientAllocation for how
+// actual usage is estimated per product afterward).
 export function suggestInputsForOutputs(outputs, productById) {
-  const byKey = {};
+  const seen = new Set();
+  const rows = [];
   for (const o of outputs) {
     const product = productById[o.productId];
-    if (!product || !o.quantity) continue;
-    for (const row of scaleRecipe(product, o.quantity)) {
-      const key = `${row.itemName}::${row.unit}`;
-      if (!byKey[key]) byKey[key] = { ...row };
-      else byKey[key].quantity = round4(byKey[key].quantity + row.quantity);
+    if (!product) continue;
+    for (const ing of product.ingredients || []) {
+      if (!seen.has(ing.itemName)) {
+        seen.add(ing.itemName);
+        rows.push({ itemName: ing.itemName, quantity: "", unit: "kg" });
+      }
     }
   }
-  return Object.values(byKey);
+  return rows;
+}
+
+// Once a run's actual materials (with real quantities) and output products
+// are logged, estimate how much of each material went to each product —
+// split by output weight share, but only among the products whose recipe
+// actually lists that ingredient (so an ingredient exclusive to one flavor
+// in a mixed run doesn't get spread across flavors that don't use it).
+export function estimateIngredientAllocation(run, productById) {
+  const outputs = run.outputs.map((o) => ({ ...o, product: productById[o.productId] }));
+  const result = {};
+  for (const input of run.inputs) {
+    const eligible = outputs.filter((o) => o.product?.ingredients?.some((ing) => ing.itemName === input.itemName));
+    const useOutputs = eligible.length > 0 ? eligible : outputs;
+    const totalWeight = useOutputs.reduce((s, o) => s + parsePackSize(o.product?.packSize || "1unit") * o.quantity, 0) || 1;
+    result[input.itemName] = useOutputs.map((o) => {
+      const w = parsePackSize(o.product?.packSize || "1unit") * o.quantity;
+      return {
+        productId: o.productId,
+        product: o.product,
+        quantity: input.quantity * (w / totalWeight),
+        unit: input.unit,
+      };
+    });
+  }
+  return result;
 }
 
 // Materials ledger: what's been supplied, what's been consumed in
@@ -230,6 +244,24 @@ export function customerAnalytics(data) {
   return data.customers.map((c) => byCustomer[c.id] || { customer: c, orders: 0, revenue: 0, margin: 0, lastDate: null });
 }
 
+// Groups sales performance by a customer attribute (segment, gender, or
+// profession) so Customers can show "who buys the most" at a glance.
+export function performanceByAttribute(data, attribute) {
+  const lines = salesWithMargin(data);
+  const groups = {};
+  for (const line of lines) {
+    const key = line.customer?.[attribute] || "Unspecified";
+    if (!groups[key]) groups[key] = { key, revenue: 0, margin: 0, orders: new Set(), customers: new Set() };
+    groups[key].revenue += line.revenue;
+    groups[key].margin += line.margin;
+    groups[key].orders.add(line.orderId);
+    if (line.customerId) groups[key].customers.add(line.customerId);
+  }
+  return Object.values(groups)
+    .map((g) => ({ key: g.key, revenue: g.revenue, margin: g.margin, orders: g.orders.size, customers: g.customers.size }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
 export function inRange(dateStr, from, to) {
   if (!dateStr) return false;
   if (from && dateStr < from) return false;
@@ -264,4 +296,49 @@ export function overviewMetrics(data, range = {}) {
     unitsSold,
     orderCount,
   };
+}
+
+// Buckets sales lines into weekly / monthly / yearly periods for trend
+// charts. Returns points sorted chronologically with revenue, COGS, gross
+// profit, and margin % per bucket.
+function bucketKey(dateStr, groupBy) {
+  const d = new Date(dateStr + "T00:00:00");
+  if (groupBy === "yearly") return dateStr.slice(0, 4);
+  if (groupBy === "weekly") {
+    const day = (d.getDay() + 6) % 7; // Monday = 0
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - day);
+    return monday.toISOString().slice(0, 10);
+  }
+  return dateStr.slice(0, 7); // monthly: YYYY-MM
+}
+
+function bucketLabel(key, groupBy) {
+  if (groupBy === "yearly") return key;
+  if (groupBy === "weekly") {
+    const d = new Date(key + "T00:00:00");
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  const [y, m] = key.split("-");
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
+export function salesTrend(data, range = {}, groupBy = "monthly") {
+  const { from, to } = range;
+  const lines = salesWithMargin(data).filter((s) => inRange(s.date, from, to));
+  const buckets = {};
+  for (const line of lines) {
+    const key = bucketKey(line.date, groupBy);
+    if (!buckets[key]) buckets[key] = { key, revenue: 0, cogs: 0 };
+    buckets[key].revenue += line.revenue;
+    buckets[key].cogs += line.cogs;
+  }
+  return Object.values(buckets)
+    .sort((a, b) => (a.key < b.key ? -1 : 1))
+    .map((b) => ({
+      label: bucketLabel(b.key, groupBy),
+      revenue: Math.round(b.revenue * 100) / 100,
+      grossProfit: Math.round((b.revenue - b.cogs) * 100) / 100,
+      marginPct: b.revenue > 0 ? Math.round(((b.revenue - b.cogs) / b.revenue) * 1000) / 10 : 0,
+    }));
 }

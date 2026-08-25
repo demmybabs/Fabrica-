@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { finishedGoodsInventory, materialLedger, salesWithMargin, productionRunCosts } from "./calc";
+import { finishedGoodsInventory, materialLedger, salesWithMargin, productionRunCosts, estimateIngredientAllocation } from "./calc";
 
 export function exportAllToExcel(data) {
   const wb = XLSX.utils.book_new();
@@ -18,12 +18,12 @@ export function exportAllToExcel(data) {
 
   addSheet(wb, "Products", data.products.map((p) => ({
     ID: p.id, Name: p.name, Flavor: p.flavor, "Pack size": p.packSize,
+    ...Object.fromEntries(Object.entries(p.pricesBySegment || {}).map(([seg, price]) => [`${seg} price`, price])),
   })));
 
   addSheet(wb, "Product recipes", data.products.flatMap((p) =>
     p.ingredients.map((i) => ({
       Product: `${p.name} (${p.packSize})`, Ingredient: i.itemName,
-      "Qty per unit": i.quantityPerUnit, Unit: i.unit,
     }))
   ));
 
@@ -59,6 +59,17 @@ export function exportAllToExcel(data) {
   addSheet(wb, "Production overheads", data.productionRuns.flatMap((run) =>
     (run.overheadCosts || []).map((o) => ({ "Batch code": run.batchCode, Date: run.date, Category: o.category, Cost: o.cost }))
   ));
+
+  addSheet(wb, "Est. ingredient use per product", data.productionRuns.flatMap((run) => {
+    const allocation = estimateIngredientAllocation(run, productById);
+    return Object.entries(allocation).flatMap(([itemName, rows]) =>
+      rows.map((r) => ({
+        "Batch code": run.batchCode, Date: run.date, Material: itemName,
+        Product: r.product ? `${r.product.name} (${r.product.packSize})` : "",
+        "Estimated quantity": r.quantity.toFixed(3), Unit: r.unit,
+      }))
+    );
+  }));
 
   const inv = finishedGoodsInventory(data);
   addSheet(wb, "Inventory - finished goods", inv.map((r) => ({

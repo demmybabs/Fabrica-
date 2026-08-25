@@ -6,7 +6,7 @@ import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
 const blankSupplier = { name: "", contact: "" };
-const blankDelivery = { supplierId: "", itemName: "", quantity: "", unit: "kg", unitCost: "", dateReceived: "", amountPaid: "", notes: "" };
+const blankDelivery = { supplierId: "", itemName: "", quantity: "", unit: "kg", totalCost: "", dateReceived: "", amountPaid: "", notes: "" };
 
 export default function Supply() {
   const { data, add, remove } = useApp();
@@ -32,12 +32,12 @@ export default function Supply() {
   const submit = (e) => {
     e.preventDefault();
     const quantity = parseFloat(form.quantity) || 0;
-    const unitCost = parseFloat(form.unitCost) || 0;
+    const totalCost = parseFloat(form.totalCost) || 0;
     add("supplyBatches", {
       ...form,
       quantity,
-      unitCost,
-      totalCost: quantity * unitCost,
+      totalCost,
+      unitCost: quantity > 0 ? totalCost / quantity : 0,
       amountPaid: parseFloat(form.amountPaid) || 0,
       dateReceived: form.dateReceived || new Date().toISOString().slice(0, 10),
     });
@@ -95,8 +95,11 @@ export default function Supply() {
                 {units.map((u) => <option key={u.unit} value={u.unit}>{u.unit}</option>)}
               </select>
             </Field>
-            <Field label="Unit cost">
-              <input type="number" step="0.01" className={inputCls} value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: e.target.value })} required />
+            <Field label="Total amount paid for this delivery">
+              <input type="number" step="0.01" className={inputCls} value={form.totalCost} onChange={(e) => setForm({ ...form, totalCost: e.target.value })} required />
+              {form.quantity && form.totalCost ? (
+                <span className="chip text-ink-500 mt-1 block">≈ {money((parseFloat(form.totalCost) || 0) / (parseFloat(form.quantity) || 1))} per {form.unit}</span>
+              ) : null}
             </Field>
             <Field label="Amount paid so far">
               <input type="number" step="0.01" className={inputCls} value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: e.target.value })} />

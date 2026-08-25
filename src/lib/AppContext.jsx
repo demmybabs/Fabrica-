@@ -6,7 +6,7 @@ import { makeId } from "./id";
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
-  const [data, setData] = useLocalState("fabrica_data_v3", buildSeed());
+  const [data, setData] = useLocalState("fabrica_data_v4", buildSeed());
 
   const add = (key, record) => {
     const id = makeId(key.slice(0, 3));
@@ -28,16 +28,19 @@ export function AppProvider({ children }) {
   const updateTheme = (role, patch) => {
     setData((d) => ({ ...d, themes: { ...d.themes, [role]: { ...(d.themes?.[role] || DEFAULT_THEMES[role]), ...patch } } }));
   };
-  const addIngredientToRecipe = (productId, ingredient) => {
+  const addIngredientToRecipe = (productId, itemName) => {
     setData((d) => ({
       ...d,
       products: d.products.map((p) => {
         if (p.id !== productId) return p;
-        const exists = p.ingredients.some((i) => i.itemName === ingredient.itemName);
+        const exists = p.ingredients.some((i) => i.itemName === itemName);
         if (exists) return p;
-        return { ...p, ingredients: [...p.ingredients, ingredient] };
+        return { ...p, ingredients: [...p.ingredients, { itemName }] };
       }),
     }));
+  };
+  const addSegment = (name) => {
+    setData((d) => (d.segments.includes(name) ? d : { ...d, segments: [...d.segments, name] }));
   };
   const resetToSeed = () => setData(buildSeed());
   const clearAllData = () => setData(buildEmpty());
@@ -46,7 +49,7 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider
-      value={{ data, add, remove, update, setCustomUnits, setActiveRole, updateTheme, addIngredientToRecipe, resetToSeed, clearAllData, setCurrency, setBranding }}
+      value={{ data, add, remove, update, setCustomUnits, setActiveRole, updateTheme, addIngredientToRecipe, addSegment, resetToSeed, clearAllData, setCurrency, setBranding }}
     >
       {children}
     </AppContext.Provider>
