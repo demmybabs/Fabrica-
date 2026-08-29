@@ -52,9 +52,8 @@ export function exportAllToExcel(data) {
     run.outputs.map((o) => ({
       "Batch code": run.batchCode, Date: run.date,
       Product: productById[o.productId] ? `${productById[o.productId].name} (${productById[o.productId].packSize})` : o.productId,
-      "Quantity logged": o.quantity,
-      "Physical count": o.countedQuantity ?? "",
-      Variance: o.countedQuantity !== undefined ? o.countedQuantity - o.quantity : "",
+      "Physical count": o.countedQuantity ?? (o.quantity !== undefined ? o.quantity : "pending"),
+      Source: o.countedQuantity !== undefined ? "counted" : (o.quantity !== undefined ? "logged (legacy)" : "pending count"),
     }))
   ));
 

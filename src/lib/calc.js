@@ -32,6 +32,15 @@ export function suggestInputsForOutputs(outputs, productById) {
   return rows;
 }
 
+// Reads the quantity actually produced for an output line. New-style runs
+// don't ask for a quantity up front anymore — only the physical count after
+// production sets it. Older runs (from before this changed) already have a
+// `quantity` entered the old way; those keep working exactly as before by
+// falling back to it until/unless a physical count is saved for that line.
+function effectiveQty(o) {
+  return o.countedQuantity ?? o.quantity ?? 0;
+}
+
 // Once a run's actual materials (with real quantities) and output products
 // are logged, estimate how much of each material went to each product —
 // split by output weight share, but only among the products whose recipe
@@ -43,9 +52,9 @@ export function estimateIngredientAllocation(run, productById) {
   for (const input of run.inputs) {
     const eligible = outputs.filter((o) => o.product?.ingredients?.some((ing) => ing.itemName === input.itemName));
     const useOutputs = eligible.length > 0 ? eligible : outputs;
-    const totalWeight = useOutputs.reduce((s, o) => s + parsePackSize(o.product?.packSize || "1unit") * o.quantity, 0) || 1;
+    const totalWeight = useOutputs.reduce((s, o) => s + parsePackSize(o.product?.packSize || "1unit") * effectiveQty(o), 0) || 1;
     result[input.itemName] = useOutputs.map((o) => {
-      const w = parsePackSize(o.product?.packSize || "1unit") * o.quantity;
+      const w = parsePackSize(o.product?.packSize || "1unit") * effectiveQty(o);
       return {
         productId: o.productId,
         product: o.product,
@@ -132,7 +141,8 @@ export function productionRunCosts(run, ledger, productById) {
   const outputsWithWeight = run.outputs.map((o) => {
     const product = productById[o.productId];
     const packWeight = parsePackSize(product?.packSize || "1unit");
-    return { ...o, product, weightShare: packWeight * o.quantity };
+    const qty = effectiveQty(o);
+    return { ...o, product, quantity: qty, isCounted: o.countedQuantity !== undefined, weightShare: packWeight * qty };
   });
   const totalWeight = outputsWithWeight.reduce((s, o) => s + o.weightShare, 0) || 1;
 

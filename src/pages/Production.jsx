@@ -6,7 +6,7 @@ import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
 const blankInput = { itemName: "", quantity: "", unit: "kg" };
-const blankOutput = { productId: "", quantity: "" };
+const blankOutput = { productId: "" };
 const overheadPresets = ["Electricity", "Water", "Fuel / gas", "Maintenance", "Packaging", "Other"];
 
 export default function Production() {
@@ -23,7 +23,7 @@ export default function Production() {
   const [notes, setNotes] = useState("");
   const [expandedRun, setExpandedRun] = useState(null);
   const [addingOutputTo, setAddingOutputTo] = useState(null);
-  const [extraOutput, setExtraOutput] = useState({ productId: "", quantity: "" });
+  const [extraOutput, setExtraOutput] = useState({ productId: "" });
 
   const ledger = materialLedger(data);
   const ledgerByItem = Object.fromEntries(ledger.map((m) => [m.itemName, m]));
@@ -62,16 +62,17 @@ export default function Production() {
   };
 
   const addOutputToRun = (run) => {
-    if (!extraOutput.productId || !extraOutput.quantity) return;
+    if (!extraOutput.productId) return;
     update("productionRuns", run.id, {
-      outputs: [...run.outputs, { productId: extraOutput.productId, unit: "unit", quantity: parseFloat(extraOutput.quantity) || 0 }],
+      outputs: [...run.outputs, { productId: extraOutput.productId, unit: "unit" }],
     });
-    setExtraOutput({ productId: "", quantity: "" });
+    setExtraOutput({ productId: "" });
     setAddingOutputTo(null);
   };
 
   const setCountedQuantity = (run, index, value) => {
-    const nextOutputs = run.outputs.map((o, i) => (i === index ? { ...o, countedQuantity: value === "" ? undefined : parseFloat(value) || 0 } : o));
+    if (value === "" || value === null) return;
+    const nextOutputs = run.outputs.map((o, i) => (i === index ? { ...o, countedQuantity: parseFloat(value) || 0 } : o));
     update("productionRuns", run.id, { outputs: nextOutputs });
   };
 
@@ -81,7 +82,7 @@ export default function Production() {
       batchCode: batchCode || `PRD-${Math.floor(Math.random() * 9000 + 1000)}`,
       date,
       inputs: inputs.filter((i) => i.itemName).map((i) => ({ ...i, quantity: parseFloat(i.quantity) || 0 })),
-      outputs: outputs.filter((o) => o.productId).map((o) => ({ ...o, unit: "unit", quantity: parseFloat(o.quantity) || 0 })),
+      outputs: outputs.filter((o) => o.productId).map((o) => ({ productId: o.productId, unit: "unit" })),
       laborCost: parseFloat(laborCost) || 0,
       overheadCosts: overheads.filter((o) => o.category && o.cost).map((o) => ({ category: o.category, cost: parseFloat(o.cost) || 0 })),
       notes,
@@ -112,15 +113,14 @@ export default function Production() {
             </div>
 
             <div>
-              <div className="chip text-ink-400 uppercase mb-2">Products produced (this run can yield several, in different flavors or sizes)</div>
+              <div className="chip text-ink-400 uppercase mb-2">Products this run is producing (this run can yield several, in different flavors or sizes) — quantities are entered later via physical count, not here</div>
               <div className="space-y-2 overflow-x-auto">
                 {outputs.map((row, i) => (
-                  <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
-                    <select className={`${inputCls} col-span-5`} value={row.productId} onChange={(e) => onOutputChange(i, { productId: e.target.value })}>
+                  <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[500px]">
+                    <select className={`${inputCls} col-span-7`} value={row.productId} onChange={(e) => onOutputChange(i, { productId: e.target.value })}>
                       <option value="">Product…</option>
                       {data.products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.flavor} · {p.packSize}</option>)}
                     </select>
-                    <input type="number" step="1" className={`${inputCls} col-span-2`} placeholder="units out" value={row.quantity} onChange={(e) => onOutputChange(i, { quantity: e.target.value })} />
                     <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => setOutputs(outputs.filter((_, idx) => idx !== i))}>remove</button>
                   </div>
                 ))}
@@ -217,42 +217,30 @@ export default function Production() {
                   </div>
                 )}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm mt-2" style={{ minWidth: "600px" }}>
+                  <table className="w-full text-sm mt-2" style={{ minWidth: "560px" }}>
                     <thead>
                       <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                         <th className="py-1.5 pr-4">Product</th>
-                        <th className="py-1.5 pr-4 text-right">Logged</th>
+                        <th className="py-1.5 pr-4 text-right">Physical count</th>
                         <th className="py-1.5 pr-4 text-right">Cost allocated</th>
                         <th className="py-1.5 pr-4 text-right">Cost / unit</th>
-                        <th className="py-1.5 pr-4 text-right">Physical count</th>
                       </tr>
                     </thead>
                     <tbody>
                       {outs.map((o, idx) => {
-                        const counted = run.outputs[idx]?.countedQuantity;
-                        const variance = counted !== undefined ? counted - o.quantity : null;
+                        const isLegacy = run.outputs[idx]?.quantity !== undefined && run.outputs[idx]?.countedQuantity === undefined;
                         return (
                           <tr key={o.productId + idx} className="text-ink-200">
                             <td className="py-1.5 pr-4">{o.product?.name} · {o.product?.packSize}</td>
-                            <td className="py-1.5 pr-4 text-right chip">{o.quantity}</td>
-                            <td className="py-1.5 pr-4 text-right chip">{money(o.costAllocated)}</td>
-                            <td className="py-1.5 pr-4 text-right chip text-brass-400">{money(o.costPerUnit)}</td>
                             <td className="py-1.5 pr-4 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                <input
-                                  type="number" placeholder="count"
-                                  className="chip w-20 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-right text-ink-100 focus:outline-none focus:border-[var(--accent)]"
-                                  defaultValue={counted ?? ""}
-                                  onBlur={(e) => setCountedQuantity(run, idx, e.target.value)}
-                                />
-                                {variance !== null && variance !== 0 && (
-                                  <span className={`chip ${variance < 0 ? "text-[var(--accent)]" : "text-moss-400"}`}>
-                                    {variance > 0 ? "+" : ""}{variance}
-                                  </span>
-                                )}
-                                {variance === 0 && <span className="chip text-moss-400">✓ matches</span>}
-                              </div>
+                              <PhysicalCountCell
+                                output={run.outputs[idx]}
+                                isLegacy={isLegacy}
+                                onSave={(value) => setCountedQuantity(run, idx, value)}
+                              />
                             </td>
+                            <td className="py-1.5 pr-4 text-right chip">{o.isCounted || isLegacy ? money(o.costAllocated) : "—"}</td>
+                            <td className="py-1.5 pr-4 text-right chip text-brass-400">{o.isCounted || isLegacy ? money(o.costPerUnit) : "—"}</td>
                           </tr>
                         );
                       })}
@@ -260,15 +248,15 @@ export default function Production() {
                   </table>
                 </div>
 
+
                 {addingOutputTo === run.id ? (
                   <div className="flex flex-wrap items-center gap-2 mt-3">
                     <select className={`${inputCls} w-56`} value={extraOutput.productId} onChange={(e) => setExtraOutput({ ...extraOutput, productId: e.target.value })}>
                       <option value="">Product…</option>
                       {data.products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.packSize}</option>)}
                     </select>
-                    <input type="number" className={`${inputCls} w-24`} placeholder="units out" value={extraOutput.quantity} onChange={(e) => setExtraOutput({ ...extraOutput, quantity: e.target.value })} />
                     <button className="chip text-[var(--accent)]" onClick={() => addOutputToRun(run)}>save</button>
-                    <button className="chip text-ink-500" onClick={() => { setAddingOutputTo(null); setExtraOutput({ productId: "", quantity: "" }); }}>cancel</button>
+                    <button className="chip text-ink-500" onClick={() => { setAddingOutputTo(null); setExtraOutput({ productId: "" }); }}>cancel</button>
                   </div>
                 ) : (
                   <button className={`${btnGhostCls} mt-3`} onClick={() => setAddingOutputTo(run.id)}>+ add a product this run also yielded</button>
@@ -315,6 +303,37 @@ export default function Production() {
           })}
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function PhysicalCountCell({ output, isLegacy, onSave }) {
+  const [draft, setDraft] = useState("");
+
+  if (output.countedQuantity !== undefined) {
+    return <span className="chip text-moss-400">{output.countedQuantity} · locked ✓</span>;
+  }
+  if (isLegacy) {
+    return <span className="chip text-ink-400">{output.quantity} · logged</span>;
+  }
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <input
+        type="number" placeholder="count"
+        className="chip w-20 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-right text-ink-100 focus:outline-none focus:border-[var(--accent)]"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <button
+        type="button"
+        className="chip text-[var(--accent)]"
+        onClick={() => {
+          if (draft === "") return;
+          if (confirm(`Save ${draft} as the physical count? This can't be changed once saved.`)) onSave(draft);
+        }}
+      >
+        save
+      </button>
     </div>
   );
 }

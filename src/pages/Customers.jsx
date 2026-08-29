@@ -14,6 +14,8 @@ export default function Customers() {
   const [form, setForm] = useState({ ...blank, segment: data.segments[0] || "" });
   const [addingSegment, setAddingSegment] = useState(false);
   const [newSegment, setNewSegment] = useState("");
+  const [addingSubCategory, setAddingSubCategory] = useState(false);
+  const [newSubCategory, setNewSubCategory] = useState("");
   const [customPrices, setCustomPrices] = useState({});
   const [editingPricesFor, setEditingPricesFor] = useState(null);
 
@@ -56,6 +58,15 @@ export default function Customers() {
     setForm({ ...form, segment: name });
     setNewSegment("");
     setAddingSegment(false);
+  };
+
+  const saveNewSubCategory = () => {
+    const name = newSubCategory.trim();
+    if (!name) return;
+    addWholesaleSubCategory(name);
+    setForm({ ...form, subCategory: name });
+    setNewSubCategory("");
+    setAddingSubCategory(false);
   };
 
   const updateExistingCustomerPrice = (customer, productId, value) => {
@@ -102,8 +113,20 @@ export default function Customers() {
               </Field>
               {isWholesale ? (
                 <Field label="Wholesale category">
-                  <input list="wholesale-subcats" className={inputCls} value={form.subCategory} onChange={(e) => setForm({ ...form, subCategory: e.target.value })} placeholder="Select or type one" />
-                  <datalist id="wholesale-subcats">{data.wholesaleSubCategories.map((c) => <option key={c} value={c} />)}</datalist>
+                  {addingSubCategory ? (
+                    <div className="flex gap-2">
+                      <input className={inputCls} value={newSubCategory} onChange={(e) => setNewSubCategory(e.target.value)} placeholder="New category name" autoFocus />
+                      <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={saveNewSubCategory}>save</button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <select className={inputCls} value={form.subCategory} onChange={(e) => setForm({ ...form, subCategory: e.target.value })}>
+                        <option value="">Select…</option>
+                        {data.wholesaleSubCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={() => setAddingSubCategory(true)}>+ new</button>
+                    </div>
+                  )}
                 </Field>
               ) : (
                 <>
