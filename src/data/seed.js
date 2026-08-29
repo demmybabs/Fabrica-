@@ -208,6 +208,7 @@ export function buildSeed() {
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
     segments: ["Retail", "Wholesale"],
+    wholesaleSubCategories: ["Supermarket", "Distributor", "Grocery store", "Pharmacy"],
   };
 }
 
@@ -226,6 +227,7 @@ export function buildEmpty() {
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
     segments: ["Retail", "Wholesale"],
+    wholesaleSubCategories: ["Supermarket", "Distributor", "Grocery store", "Pharmacy"],
   };
 }
 

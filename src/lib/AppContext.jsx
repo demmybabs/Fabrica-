@@ -1,12 +1,22 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 import { useLocalState } from "./storage";
 import { buildSeed, buildEmpty, DEFAULT_THEMES } from "../data/seed";
+import { migrateData } from "./migrate";
 import { makeId } from "./id";
 
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
   const [data, setData] = useLocalState("fabrica_data_v4", buildSeed());
+
+  // One-time, non-destructive upgrade of data saved by an earlier version —
+  // adds new fields with safe defaults, never removes or overwrites
+  // anything that's already there. See migrate.js.
+  useEffect(() => {
+    const migrated = migrateData(data);
+    if (migrated !== data) setData(migrated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const add = (key, record) => {
     const id = makeId(key.slice(0, 3));
@@ -42,6 +52,9 @@ export function AppProvider({ children }) {
   const addSegment = (name) => {
     setData((d) => (d.segments.includes(name) ? d : { ...d, segments: [...d.segments, name] }));
   };
+  const addWholesaleSubCategory = (name) => {
+    setData((d) => (d.wholesaleSubCategories.includes(name) ? d : { ...d, wholesaleSubCategories: [...d.wholesaleSubCategories, name] }));
+  };
   const resetToSeed = () => setData(buildSeed());
   const clearAllData = () => setData(buildEmpty());
   const setCurrency = (currency) => setData((d) => ({ ...d, currency }));
@@ -49,7 +62,7 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider
-      value={{ data, add, remove, update, setCustomUnits, setActiveRole, updateTheme, addIngredientToRecipe, addSegment, resetToSeed, clearAllData, setCurrency, setBranding }}
+      value={{ data, add, remove, update, setCustomUnits, setActiveRole, updateTheme, addIngredientToRecipe, addSegment, addWholesaleSubCategory, resetToSeed, clearAllData, setCurrency, setBranding }}
     >
       {children}
     </AppContext.Provider>

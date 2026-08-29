@@ -74,6 +74,7 @@ export default function Overview() {
         <StatCard label="Gross profit" value={money(m.grossProfit)} sub={`${m.grossMarginPct.toFixed(1)}% margin`} tone="brass" />
         <StatCard label="Inventory value" value={money(m.inventoryValue)} sub="raw + finished, current" />
         <StatCard label="Payables to suppliers" value={money(m.payables)} tone="rust" />
+        <StatCard label="Receivables from customers" value={money(m.receivables)} tone="rust" />
         <StatCard label="Units sold" value={m.unitsSold} sub={`${m.orderCount} orders`} />
         <StatCard label="Active customers" value={m.activeCustomers} sub="purchased in range" tone="moss" />
         <StatCard label="Production runs" value={data.productionRuns.length} sub="lifetime" />

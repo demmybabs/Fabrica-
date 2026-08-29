@@ -8,13 +8,14 @@ const paymentModes = ["Cash", "POS", "Transfer", "Credit"];
 const blankItem = { productId: "", quantity: "", unitPrice: "" };
 
 export default function Sales() {
-  const { data, add, remove } = useApp();
+  const { data, add, update, remove } = useApp();
   const money = useMoney();
   const [open, setOpen] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [date, setDate] = useState("");
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [items, setItems] = useState([{ ...blankItem }]);
+  const [amountPaid, setAmountPaid] = useState("");
 
   const lines = salesWithMargin(data);
   const inv = finishedGoodsInventory(data);
@@ -30,9 +31,10 @@ export default function Sales() {
   const onProductSelect = (i, productId) => {
     const product = productById[productId];
     const customer = customerById[customerId];
+    const customPrice = customer?.segment === "Wholesale" ? customer.customPrices?.[productId] : undefined;
     const segmentPrice = customer ? product?.pricesBySegment?.[customer.segment] : undefined;
     const fallbackPrice = product?.pricesBySegment ? Object.values(product.pricesBySegment)[0] : undefined;
-    const suggested = segmentPrice ?? fallbackPrice;
+    const suggested = customPrice ?? segmentPrice ?? fallbackPrice;
     updateItem(i, {
       productId,
       unitPrice: items[i].unitPrice || (suggested !== undefined ? String(suggested) : ""),
@@ -40,6 +42,7 @@ export default function Sales() {
   };
 
   const orderTotal = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0), 0);
+  const balance = orderTotal - (amountPaid === "" ? orderTotal : parseFloat(amountPaid) || 0);
 
   const submit = (e) => {
     e.preventDefault();
@@ -47,11 +50,16 @@ export default function Sales() {
       customerId,
       date: date || new Date().toISOString().slice(0, 10),
       paymentMode,
+      amountPaid: amountPaid === "" ? orderTotal : parseFloat(amountPaid) || 0,
       items: items
         .filter((i) => i.productId && i.quantity)
         .map((i) => ({ productId: i.productId, quantity: parseFloat(i.quantity) || 0, unitPrice: parseFloat(i.unitPrice) || 0 })),
     });
-    setCustomerId(""); setDate(""); setPaymentMode("Cash"); setItems([{ ...blankItem }]); setOpen(false);
+    setCustomerId(""); setDate(""); setPaymentMode("Cash"); setItems([{ ...blankItem }]); setAmountPaid(""); setOpen(false);
+  };
+
+  const recordPayment = (order, value) => {
+    update("salesOrders", order.id, { amountPaid: parseFloat(value) || 0 });
   };
 
   return (
@@ -98,9 +106,20 @@ export default function Sales() {
                   </div>
                 ))}
               </div>
-              <div className="flex items-center justify-between mt-2">
+              <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
                 <button type="button" className={btnGhostCls} onClick={() => setItems([...items, { ...blankItem }])}>+ add item</button>
                 <span className="chip text-ink-300">Order total: <span className="text-[var(--accent)]">{money(orderTotal)}</span></span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Amount paid by customer">
+                <input type="number" step="0.01" className={inputCls} value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={orderTotal ? orderTotal.toFixed(2) : "0.00"} />
+              </Field>
+              <div className="flex items-end">
+                <span className="chip text-ink-400">
+                  {balance > 0.004 ? <>Balance — becomes a <span className="text-[var(--accent)]">receivable</span> of {money(balance)}</> : "Fully paid — leave blank to default to the full total"}
+                </span>
               </div>
             </div>
 
@@ -119,6 +138,8 @@ export default function Sales() {
             const orderLines = lines.filter((l) => l.orderId === orderId);
             const total = orderLines.reduce((s, l) => s + l.revenue, 0);
             const margin = orderLines.reduce((s, l) => s + l.margin, 0);
+            const paid = order.amountPaid ?? total;
+            const orderBalance = Math.max(0, total - paid);
             return (
               <div key={orderId} className="border border-ink-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -127,12 +148,28 @@ export default function Sales() {
                     <span className="text-sm text-ink-100">{customerById[order.customerId]?.name || "—"}</span>
                     <span className="chip text-ink-500">{order.paymentMode}</span>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 flex-wrap">
                     <span className="chip text-ink-300">revenue {money(total)}</span>
                     <span className="chip text-moss-400">margin {money(margin)}</span>
+                    {orderBalance > 0.004 ? (
+                      <span className="chip text-[var(--accent)]">receivable {money(orderBalance)}</span>
+                    ) : (
+                      <span className="chip text-ink-500">fully paid</span>
+                    )}
                     <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("salesOrders", orderId)}>remove order</button>
                   </div>
                 </div>
+                {orderBalance > 0.004 && (
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="chip text-ink-500">Record payment received:</span>
+                    <input
+                      type="number" step="0.01"
+                      className={`${inputCls} w-32`}
+                      placeholder={paid.toFixed(2)}
+                      onBlur={(e) => { if (e.target.value) recordPayment(order, e.target.value); }}
+                    />
+                  </div>
+                )}
                 <div className="overflow-x-auto">
 <table className="w-full text-sm" style={{minWidth: "600px"}}>
                   <thead>

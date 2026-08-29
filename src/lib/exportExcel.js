@@ -52,7 +52,9 @@ export function exportAllToExcel(data) {
     run.outputs.map((o) => ({
       "Batch code": run.batchCode, Date: run.date,
       Product: productById[o.productId] ? `${productById[o.productId].name} (${productById[o.productId].packSize})` : o.productId,
-      Quantity: o.quantity,
+      "Quantity logged": o.quantity,
+      "Physical count": o.countedQuantity ?? "",
+      Variance: o.countedQuantity !== undefined ? o.countedQuantity - o.quantity : "",
     }))
   ));
 
@@ -79,20 +81,45 @@ export function exportAllToExcel(data) {
   })));
 
   addSheet(wb, "Customers", data.customers.map((c) => ({
-    ID: c.id, Name: c.name, Gender: c.gender, Profession: c.profession, Segment: c.segment, "Created at": c.createdAt,
+    ID: c.id, Name: c.name, Segment: c.segment, "Wholesale category": c.subCategory || "",
+    Gender: c.gender || "", Profession: c.profession || "",
+    State: c.state || "", City: c.city || "", Email: c.email || "", Phone: c.phone || "",
+    "Created at": c.createdAt,
   })));
 
+  addSheet(wb, "Customer custom prices", data.customers.flatMap((c) =>
+    Object.entries(c.customPrices || {}).map(([productId, price]) => ({
+      Customer: c.name, Product: productById[productId] ? `${productById[productId].name} (${productById[productId].packSize})` : productId,
+      Price: price,
+    }))
+  ));
+
   const salesLines = salesWithMargin(data);
-  addSheet(wb, "Sales", salesLines.map((s) => ({
+  addSheet(wb, "Sales (line items)", salesLines.map((s) => ({
     Date: s.date, Order: s.orderId, Customer: s.customer?.name || "",
     Product: s.product ? `${s.product.name} (${s.product.packSize})` : "",
     Quantity: s.quantity, "Unit price": s.unitPrice, "Cost / unit": s.costPerUnit.toFixed(2),
     Revenue: s.revenue.toFixed(2), Margin: s.margin.toFixed(2), "Payment mode": s.paymentMode,
   })));
 
+  const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
+  addSheet(wb, "Sales orders", data.salesOrders.map((o) => {
+    const total = (o.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    const paid = o.amountPaid ?? total;
+    return {
+      Order: o.id, Date: o.date, Customer: customerById[o.customerId]?.name || "",
+      "Payment mode": o.paymentMode, "Order total": total.toFixed(2), "Amount paid": paid.toFixed(2),
+      Balance: Math.max(0, total - paid).toFixed(2),
+    };
+  }));
+
   addSheet(wb, "Spoilage", (data.spoilage || []).map((s) => ({
-    Date: s.date, Product: productById[s.productId] ? `${productById[s.productId].name} (${productById[s.productId].packSize})` : s.productId,
-    Quantity: s.quantity, Reason: s.reason,
+    Date: s.date, Kind: s.kind,
+    Item: s.kind === "product"
+      ? (productById[s.productId] ? `${productById[s.productId].name} (${productById[s.productId].packSize})` : s.productId)
+      : s.itemName,
+    Quantity: s.quantity, Unit: s.kind === "material" ? s.unit : "unit",
+    Reason: s.reason || "", "Value lost": (s.valueLost || 0).toFixed(2),
   })));
 
   const stamp = new Date().toISOString().slice(0, 10);

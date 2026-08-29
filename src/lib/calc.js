@@ -93,12 +93,20 @@ export function materialLedger(data) {
     }
   }
 
+  const spoiledBaseByItem = {};
+  for (const s of data.spoilage || []) {
+    if (s.kind !== "material" || !s.itemName) continue;
+    spoiledBaseByItem[s.itemName] = (spoiledBaseByItem[s.itemName] || 0) + toBase(s.quantity, s.unit, customUnits);
+  }
+
   return Object.values(byItem).map((row) => {
     const avgUnitCostBase = row.suppliedBase > 0 ? row.costSupplied / row.suppliedBase : 0;
-    const remainingBase = row.suppliedBase - row.consumedBase;
+    const spoiledBase = spoiledBaseByItem[row.itemName] || 0;
+    const remainingBase = row.suppliedBase - row.consumedBase - spoiledBase;
     return {
       ...row,
       avgUnitCostBase,
+      spoiledBase,
       remainingBase,
       remainingDisplay: convert(remainingBase, row.baseUnit, row.displayUnit, customUnits) ?? remainingBase,
       valueRemaining: remainingBase * avgUnitCostBase,
@@ -166,6 +174,7 @@ export function finishedGoodsInventory(data) {
   }
   const spoiled = {};
   for (const s of spoilage || []) {
+    if (s.kind !== "product" || !s.productId) continue;
     spoiled[s.productId] = (spoiled[s.productId] || 0) + s.quantity;
   }
 
@@ -241,7 +250,19 @@ export function customerAnalytics(data) {
   for (const id of Object.keys(byCustomer)) {
     byCustomer[id].orders = orderIdsByCustomer[id].size;
   }
-  return data.customers.map((c) => byCustomer[c.id] || { customer: c, orders: 0, revenue: 0, margin: 0, lastDate: null });
+
+  const balanceByCustomer = {};
+  for (const order of data.salesOrders) {
+    const total = (order.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    const paid = order.amountPaid ?? total;
+    const balance = Math.max(0, total - paid);
+    if (balance > 0) balanceByCustomer[order.customerId] = (balanceByCustomer[order.customerId] || 0) + balance;
+  }
+
+  return data.customers.map((c) => ({
+    ...(byCustomer[c.id] || { customer: c, orders: 0, revenue: 0, margin: 0, lastDate: null }),
+    balance: balanceByCustomer[c.id] || 0,
+  }));
 }
 
 // Groups sales performance by a customer attribute (segment, gender, or
@@ -262,6 +283,32 @@ export function performanceByAttribute(data, attribute) {
     .sort((a, b) => b.revenue - a.revenue);
 }
 
+// Estimates the value lost for a spoilage entry before it's saved, so the
+// form can show a live preview. Products use a reference selling price
+// (the first price set across segments); raw materials use their current
+// average supply cost. Returns { value, basis } — basis explains what the
+// estimate is built on, since selling price isn't a single fixed number
+// once pricing varies by segment/customer.
+export function estimateSpoilageValue(data, { kind, productId, itemName, quantity, unit }) {
+  const qty = parseFloat(quantity) || 0;
+  if (kind === "product") {
+    const product = data.products.find((p) => p.id === productId);
+    const prices = Object.values(product?.pricesBySegment || {});
+    if (prices.length > 0) {
+      return { value: qty * prices[0], basis: `at ${data.segments[0] || "its"} selling price` };
+    }
+    const inv = finishedGoodsInventory(data).find((r) => r.product.id === productId);
+    return { value: qty * (inv?.avgCostPerUnit || 0), basis: "at average production cost (no selling price set)" };
+  }
+  if (kind === "material") {
+    const ledger = materialLedger(data);
+    const row = ledger.find((r) => r.itemName === itemName);
+    if (!row) return { value: 0, basis: "no supply cost on file yet" };
+    const qtyBase = toBase(qty, unit, data.customUnits);
+    return { value: qtyBase * row.avgUnitCostBase, basis: "at average supply cost" };
+  }
+  return { value: 0, basis: "" };
+}
 export function inRange(dateStr, from, to) {
   if (!dateStr) return false;
   if (from && dateStr < from) return false;
@@ -282,6 +329,11 @@ export function overviewMetrics(data, range = {}) {
   const activeCustomers = new Set(lines.map((s) => s.customerId)).size;
   const inventoryValue = inv.reduce((s, r) => s + r.valueOnHand, 0) + ledger.reduce((s, r) => s + r.valueRemaining, 0);
   const payables = ledger.reduce((s, r) => s + r.payable, 0);
+  const receivables = data.salesOrders.reduce((s, order) => {
+    const total = (order.items || []).reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    const paid = order.amountPaid ?? total;
+    return s + Math.max(0, total - paid);
+  }, 0);
   const unitsSold = lines.reduce((s, r) => s + r.quantity, 0);
   const orderCount = new Set(lines.map((r) => r.orderId)).size;
 
@@ -293,6 +345,7 @@ export function overviewMetrics(data, range = {}) {
     activeCustomers,
     inventoryValue,
     payables,
+    receivables,
     unitsSold,
     orderCount,
   };

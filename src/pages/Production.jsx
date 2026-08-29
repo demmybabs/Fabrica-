@@ -10,7 +10,7 @@ const blankOutput = { productId: "", quantity: "" };
 const overheadPresets = ["Electricity", "Water", "Fuel / gas", "Maintenance", "Packaging", "Other"];
 
 export default function Production() {
-  const { data, add, remove, addIngredientToRecipe } = useApp();
+  const { data, add, update, remove, addIngredientToRecipe } = useApp();
   const money = useMoney();
   const [open, setOpen] = useState(false);
   const [batchCode, setBatchCode] = useState("");
@@ -22,8 +22,15 @@ export default function Production() {
   const [overheads, setOverheads] = useState([{ category: "Electricity", cost: "" }]);
   const [notes, setNotes] = useState("");
   const [expandedRun, setExpandedRun] = useState(null);
+  const [addingOutputTo, setAddingOutputTo] = useState(null);
+  const [extraOutput, setExtraOutput] = useState({ productId: "", quantity: "" });
 
   const ledger = materialLedger(data);
+  const ledgerByItem = Object.fromEntries(ledger.map((m) => [m.itemName, m]));
+  const allKnownMaterials = [...new Set([
+    ...ledger.map((m) => m.itemName),
+    ...data.products.flatMap((p) => p.ingredients.map((i) => i.itemName)),
+  ])];
   const units = allUnits(data.customUnits);
   const productById = Object.fromEntries(data.products.map((s) => [s.id, s]));
 
@@ -52,6 +59,20 @@ export default function Production() {
     const target = outputs.find((o) => o.productId);
     if (!target) return;
     addIngredientToRecipe(target.productId, input.itemName);
+  };
+
+  const addOutputToRun = (run) => {
+    if (!extraOutput.productId || !extraOutput.quantity) return;
+    update("productionRuns", run.id, {
+      outputs: [...run.outputs, { productId: extraOutput.productId, unit: "unit", quantity: parseFloat(extraOutput.quantity) || 0 }],
+    });
+    setExtraOutput({ productId: "", quantity: "" });
+    setAddingOutputTo(null);
+  };
+
+  const setCountedQuantity = (run, index, value) => {
+    const nextOutputs = run.outputs.map((o, i) => (i === index ? { ...o, countedQuantity: value === "" ? undefined : parseFloat(value) || 0 } : o));
+    update("productionRuns", run.id, { outputs: nextOutputs });
   };
 
   const submit = (e) => {
@@ -119,7 +140,11 @@ export default function Production() {
                   <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
                     <select className={`${inputCls} col-span-3`} value={row.itemName} onChange={(e) => { updateRow(inputs, setInputs, i, { itemName: e.target.value }); setInputsTouched(true); }}>
                       <option value="">Material…</option>
-                      {ledger.map((m) => <option key={m.itemName} value={m.itemName}>{m.itemName} ({m.remainingBase.toFixed(1)} {m.baseUnit} left)</option>)}
+                      {allKnownMaterials.map((name) => (
+                        <option key={name} value={name}>
+                          {ledgerByItem[name] ? `${name} (${ledgerByItem[name].remainingBase.toFixed(1)} ${ledgerByItem[name].baseUnit} left)` : `${name} (not yet supplied)`}
+                        </option>
+                      ))}
                     </select>
                     <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="qty used" value={row.quantity} onChange={(e) => { updateRow(inputs, setInputs, i, { quantity: e.target.value }); setInputsTouched(true); }} />
                     <select className={`${inputCls} col-span-2`} value={row.unit} onChange={(e) => { updateRow(inputs, setInputs, i, { unit: e.target.value }); setInputsTouched(true); }}>
@@ -162,7 +187,12 @@ export default function Production() {
         </Panel>
       )}
 
-      <Panel title="Run log" eyebrow="Cost allocated by pack weight — expand a run to see estimated ingredient usage per product">
+      <Panel title="Run log" eyebrow="Materials are locked once saved — you can still add products this run yielded, and log a physical count against each">
+        <p className="text-xs text-ink-500 mb-3 -mt-1">
+          Physical count is optional and doesn't change recorded costs or margins — it's a
+          side-by-side check. A variance between what was logged and what was actually counted
+          on the shelf is a signal worth investigating, not an automatic correction.
+        </p>
         <div className="space-y-4">
           {[...data.productionRuns].reverse().map((run) => {
             const { totalRunCost, outputs: outs, materialCost, overheadTotal } = productionRunCosts(run, ledger, productById);
@@ -187,27 +217,62 @@ export default function Production() {
                   </div>
                 )}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm mt-2" style={{ minWidth: "500px" }}>
+                  <table className="w-full text-sm mt-2" style={{ minWidth: "600px" }}>
                     <thead>
                       <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                         <th className="py-1.5 pr-4">Product</th>
-                        <th className="py-1.5 pr-4 text-right">Units out</th>
+                        <th className="py-1.5 pr-4 text-right">Logged</th>
                         <th className="py-1.5 pr-4 text-right">Cost allocated</th>
                         <th className="py-1.5 pr-4 text-right">Cost / unit</th>
+                        <th className="py-1.5 pr-4 text-right">Physical count</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {outs.map((o) => (
-                        <tr key={o.productId} className="text-ink-200">
-                          <td className="py-1.5 pr-4">{o.product?.name} · {o.product?.packSize}</td>
-                          <td className="py-1.5 pr-4 text-right chip">{o.quantity}</td>
-                          <td className="py-1.5 pr-4 text-right chip">{money(o.costAllocated)}</td>
-                          <td className="py-1.5 pr-4 text-right chip text-brass-400">{money(o.costPerUnit)}</td>
-                        </tr>
-                      ))}
+                      {outs.map((o, idx) => {
+                        const counted = run.outputs[idx]?.countedQuantity;
+                        const variance = counted !== undefined ? counted - o.quantity : null;
+                        return (
+                          <tr key={o.productId + idx} className="text-ink-200">
+                            <td className="py-1.5 pr-4">{o.product?.name} · {o.product?.packSize}</td>
+                            <td className="py-1.5 pr-4 text-right chip">{o.quantity}</td>
+                            <td className="py-1.5 pr-4 text-right chip">{money(o.costAllocated)}</td>
+                            <td className="py-1.5 pr-4 text-right chip text-brass-400">{money(o.costPerUnit)}</td>
+                            <td className="py-1.5 pr-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <input
+                                  type="number" placeholder="count"
+                                  className="chip w-20 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-right text-ink-100 focus:outline-none focus:border-[var(--accent)]"
+                                  defaultValue={counted ?? ""}
+                                  onBlur={(e) => setCountedQuantity(run, idx, e.target.value)}
+                                />
+                                {variance !== null && variance !== 0 && (
+                                  <span className={`chip ${variance < 0 ? "text-[var(--accent)]" : "text-moss-400"}`}>
+                                    {variance > 0 ? "+" : ""}{variance}
+                                  </span>
+                                )}
+                                {variance === 0 && <span className="chip text-moss-400">✓ matches</span>}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
+
+                {addingOutputTo === run.id ? (
+                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                    <select className={`${inputCls} w-56`} value={extraOutput.productId} onChange={(e) => setExtraOutput({ ...extraOutput, productId: e.target.value })}>
+                      <option value="">Product…</option>
+                      {data.products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.packSize}</option>)}
+                    </select>
+                    <input type="number" className={`${inputCls} w-24`} placeholder="units out" value={extraOutput.quantity} onChange={(e) => setExtraOutput({ ...extraOutput, quantity: e.target.value })} />
+                    <button className="chip text-[var(--accent)]" onClick={() => addOutputToRun(run)}>save</button>
+                    <button className="chip text-ink-500" onClick={() => { setAddingOutputTo(null); setExtraOutput({ productId: "", quantity: "" }); }}>cancel</button>
+                  </div>
+                ) : (
+                  <button className={`${btnGhostCls} mt-3`} onClick={() => setAddingOutputTo(run.id)}>+ add a product this run also yielded</button>
+                )}
                 <button
                   className="chip text-[var(--accent)] mt-3"
                   onClick={() => setExpandedRun(isExpanded ? null : run.id)}
