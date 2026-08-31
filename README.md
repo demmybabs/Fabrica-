@@ -61,3 +61,24 @@ app.
   not the cost at the moment that specific unit was produced.
 - No multi-branch support yet — this is single-location.
 - No user accounts or authentication — anyone with the link can edit.
+
+## Going live with Supabase (shared, synced data)
+
+By default Fabrica stores everything in the browser's local storage — fine
+for solo testing, but each device ends up with its own separate copy. To
+make data live and synced across every device, in single-user mode (one
+account, full access, no roles to manage):
+
+1. Create a project at [supabase.com](https://supabase.com) and run the
+   entire contents of `src/data/schema.sql` in its SQL editor.
+2. Create your own login under Authentication → Users (email + password,
+   with "Auto Confirm User" checked).
+3. Copy `.env.example` to `.env` and fill in your project's URL and anon
+   key from Supabase → Settings → API.
+4. `npm run dev` (or redeploy on Vercel, after adding the same two
+   variables under Project Settings → Environment Variables — Vite bakes
+   them in at build time, so a redeploy is required after adding them).
+
+Once connected, a login screen replaces the old "Viewing as" switcher.
+Sign in with the account from step 2, and every device signed in reads
+and writes the same shared data in real time.

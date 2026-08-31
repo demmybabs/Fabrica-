@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import { useState } from "react";
 import { useApp } from "../lib/AppContext";
 import { canAccess } from "../lib/access";
+import { supabaseEnabled } from "../lib/supabaseClient";
 
 const allLinks = [
   { to: "/", label: "Overview", code: "00" },
@@ -19,7 +20,12 @@ export default function Sidebar() {
   const { data } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
   const role = data.activeRole;
-  const links = allLinks.filter((l) => canAccess(role, l.to) || l.to === "/settings");
+  // Single-user Supabase mode: one account, full access — show everything
+  // except the customer-portal stand-in, which only makes sense in the
+  // local multi-role demo mode.
+  const links = supabaseEnabled
+    ? allLinks.filter((l) => l.to !== "/customer-portal")
+    : allLinks.filter((l) => canAccess(role, l.to) || l.to === "/settings");
   const branding = data.branding || { name: "Fabrica", tagline: "production line control" };
 
   const content = (

@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useApp } from "../lib/AppContext";
+import { supabaseEnabled } from "../lib/supabaseClient";
 import { DEFAULT_UNITS } from "../lib/uom";
 import { ROLES, CURRENCIES } from "../data/seed";
 import { exportAllToExcel } from "../lib/exportExcel";
@@ -53,23 +54,36 @@ export default function Settings() {
         <h1 className="font-display text-xl font-semibold text-ink-50">Settings</h1>
       </div>
 
-      <Panel title="Roles & access" eyebrow="Who's viewing the app right now">
-        <div className="grid grid-cols-2 gap-4 mb-3">
-          <Field label="Viewing as">
-            <select className={inputCls} value={data.activeRole} onChange={(e) => setActiveRole(e.target.value)}>
-              {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-            </select>
-          </Field>
-        </div>
-        <p className="text-sm text-ink-400 leading-relaxed">
-          This switcher is a stand-in for real login. Once the app is connected to a backend,
-          each person will sign in with their own email — a supply officer's email is tagged
-          with the supply role, a customer's email is linked to their own customer record — and
-          they'll land straight in their portal with no switcher needed. The database and
-          permission rules for that are already written in <code className="chip">src/data/schema.sql</code>;
-          it just needs a live Supabase project to connect to. Say the word and I'll walk you
-          through setting that up.
-        </p>
+      <Panel title="Data connection" eyebrow="How this device is connected">
+        {supabaseEnabled ? (
+          <div className="space-y-2">
+            <div className="text-sm text-ink-200 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-moss-500 inline-block" />
+              Connected — data is live and synced across every device
+            </div>
+            <p className="text-sm text-ink-400 leading-relaxed">
+              There's no login screen by design — this device connects to the shared database
+              automatically. Everything you see and enter here is the same data everyone else
+              sees, updated in real time.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-4 mb-3">
+              <Field label="Viewing as">
+                <select className={inputCls} value={data.activeRole} onChange={(e) => setActiveRole(e.target.value)}>
+                  {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                </select>
+              </Field>
+            </div>
+            <p className="text-sm text-ink-400 leading-relaxed">
+              This switcher is a stand-in for real login, and data here is only stored in this
+              browser. Connect a Supabase project (see <code className="chip">src/data/schema.sql</code> and
+              the .env.example file) to get real per-person login and data shared live across
+              every device.
+            </p>
+          </>
+        )}
       </Panel>
 
       <Panel title="Branding" eyebrow="Shown at the top of the sidebar">
@@ -201,19 +215,25 @@ export default function Settings() {
       <Panel title="Data" eyebrow="Export, reload the demo dataset, or start clean">
         <div className="flex flex-wrap gap-3">
           <button className={btnCls} onClick={() => exportAllToExcel(data)}>Download all data (Excel)</button>
-          <button className={btnGhostCls} onClick={() => { if (confirm("Reset all data back to the example dataset? This can't be undone.")) resetToSeed(); }}>Reset to example data</button>
+          {!supabaseEnabled && (
+            <button className={btnGhostCls} onClick={() => { if (confirm("Reset all data back to the example dataset? This can't be undone.")) resetToSeed(); }}>Reset to example data</button>
+          )}
           <button
             className="chip px-3 py-1.5 rounded border border-red-400 text-red-400 hover:bg-red-400/10"
-            onClick={() => { if (confirm("Clear ALL data — suppliers, products, production, sales, customers, everything? This can't be undone.")) clearAllData(); }}
+            onClick={() => {
+              const warning = supabaseEnabled
+                ? "Clear ALL data — for EVERYONE, on every device, since this is a shared database? This can't be undone."
+                : "Clear ALL data — suppliers, products, production, sales, customers, everything? This can't be undone.";
+              if (confirm(warning)) clearAllData();
+            }}
           >
             Clear all data
           </button>
         </div>
         <p className="text-xs text-ink-500 mt-3">
-          Everything is stored in this browser's local storage — nothing leaves the device this
-          is opened on. "Clear all data" wipes it to a blank slate (useful once you're done
-          testing and ready to enter your real business data). "Reset to example data" reloads
-          the sample granola-business dataset instead.
+          {supabaseEnabled
+            ? "Data is stored in a shared Supabase database — every signed-in device sees the same records. \"Clear all data\" wipes it for everyone, not just this device."
+            : "Everything is stored in this browser's local storage — nothing leaves the device this is opened on. \"Clear all data\" wipes it to a blank slate (useful once you're done testing and ready to enter your real business data). \"Reset to example data\" reloads the sample granola-business dataset instead."}
         </p>
       </Panel>
     </div>
