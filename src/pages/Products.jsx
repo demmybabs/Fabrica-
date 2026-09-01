@@ -1,42 +1,60 @@
 import { useState } from "react";
 import { useApp } from "../lib/AppContext";
+import { handleImageUpload } from "../lib/imageResize";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
 const blankProduct = { name: "", flavor: "", packSize: "", imageDataUrl: null };
 
 export default function Products() {
-  const { data, add, update, remove } = useApp();  const [open, setOpen] = useState(false);
+  const { data, add, update, remove } = useApp();
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blankProduct);
   const [ingredientNames, setIngredientNames] = useState([""]);
   const [prices, setPrices] = useState({});
   const [newIngredient, setNewIngredient] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const knownMaterials = [...new Set([
     ...data.supplyBatches.map((b) => b.itemName),
     ...data.products.flatMap((p) => p.ingredients.map((i) => i.itemName)),
   ])];
 
-  const onImageChange = (e) => {
+  const onImageChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setForm((f) => ({ ...f, imageDataUrl: reader.result }));
-    reader.readAsDataURL(file);
+    const result = await handleImageUpload(file);
+    if (result.ok) {
+      setForm((f) => ({ ...f, imageDataUrl: result.dataUrl }));
+      setFormError("");
+    } else if (result.reason !== "cancelled") {
+      setFormError(result.message);
+    }
+    e.target.value = ""; // let the same file be re-selected after a cancel/failure
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
+    setFormError("");
+    setSaving(true);
     const pricesBySegment = {};
     for (const seg of data.segments) {
       if (prices[seg]) pricesBySegment[seg] = parseFloat(prices[seg]) || 0;
     }
-    add("products", {
+    const result = await add("products", {
       ...form,
       unit: "unit",
       pricesBySegment,
       ingredients: ingredientNames.filter((n) => n.trim()).map((n) => ({ itemName: n.trim() })),
     });
+    setSaving(false);
+    if (result && result.ok === false) {
+      // Don't clear the form or close the panel on failure — the global
+      // error banner explains what went wrong, and nothing typed is lost.
+      setFormError("That didn't save — see the message at the top of the page.");
+      return;
+    }
     setForm(blankProduct);
     setIngredientNames([""]);
     setPrices({});
@@ -114,9 +132,12 @@ export default function Products() {
               <button type="button" className={`${btnGhostCls} mt-2`} onClick={() => setIngredientNames([...ingredientNames, ""])}>+ add ingredient</button>
             </div>
 
-            <div className="flex justify-end gap-2">
-              <button type="button" className={btnGhostCls} onClick={() => setOpen(false)}>Cancel</button>
-              <button type="submit" className={btnCls}>Save product</button>
+            <div className="flex items-center justify-between gap-2">
+              {formError && <span className="text-sm text-[var(--accent)]">{formError}</span>}
+              <div className="flex justify-end gap-2 ml-auto">
+                <button type="button" className={btnGhostCls} onClick={() => setOpen(false)}>Cancel</button>
+                <button type="submit" className={btnCls} disabled={saving}>{saving ? "Saving…" : "Save product"}</button>
+              </div>
             </div>
           </form>
         </Panel>

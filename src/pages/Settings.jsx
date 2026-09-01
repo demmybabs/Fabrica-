@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useApp } from "../lib/AppContext";
 import { supabaseEnabled } from "../lib/supabaseClient";
+import { handleImageUpload } from "../lib/imageResize";
 import { DEFAULT_UNITS } from "../lib/uom";
 import { ROLES, CURRENCIES } from "../data/seed";
 import { exportAllToExcel } from "../lib/exportExcel";
@@ -13,6 +14,7 @@ export default function Settings() {
   const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency } = useApp();
   const [form, setForm] = useState(blank);
   const [themeRole, setThemeRole] = useState(data.activeRole);
+  const [logoError, setLogoError] = useState("");
   const logoInputRef = useRef(null);
 
   const theme = data.themes?.[themeRole] || {};
@@ -39,12 +41,17 @@ export default function Settings() {
     setCustomUnits(next);
   };
 
-  const onLogoChange = (e) => {
+  const onLogoChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setBranding({ logoDataUrl: reader.result });
-    reader.readAsDataURL(file);
+    const result = await handleImageUpload(file);
+    if (result.ok) {
+      setBranding({ logoDataUrl: result.dataUrl });
+      setLogoError("");
+    } else if (result.reason !== "cancelled") {
+      setLogoError(result.message);
+    }
+    e.target.value = "";
   };
 
   return (
@@ -106,6 +113,7 @@ export default function Settings() {
             )}
             <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={onLogoChange} />
           </div>
+          {logoError && <p className="text-sm text-[var(--accent)] mt-2">{logoError}</p>}
         </Field>
       </Panel>
 

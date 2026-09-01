@@ -30,6 +30,28 @@ const EMPTY = {
   ...DEFAULTS,
 };
 
+// Translates common Postgres/Supabase error codes into something a
+// non-technical user can act on, instead of a raw error object.
+function friendlyError(error, verb) {
+  const msg = error?.message || "";
+  if (error?.code === "22001" || /too long|value too long/i.test(msg)) {
+    return `Couldn't ${verb} — one of the fields (often an image) is too large. Try a smaller image.`;
+  }
+  if (error?.code === "23502") {
+    return `Couldn't ${verb} — a required field was left empty.`;
+  }
+  if (error?.code === "23505") {
+    return `Couldn't ${verb} — that record already exists.`;
+  }
+  if (error?.code === "42501" || /permission denied|row-level security/i.test(msg)) {
+    return `Couldn't ${verb} — the database rejected this for permission reasons. Check the app's Supabase connection.`;
+  }
+  if (/fetch|network|Failed to fetch/i.test(msg)) {
+    return `Couldn't ${verb} — no connection to the database right now. Check your internet connection and try again.`;
+  }
+  return `Couldn't ${verb} — ${msg || "an unknown error occurred"}.`;
+}
+
 // Supabase-backed data source — every read/write goes to the shared
 // database, so every signed-in device sees the same data. Falls back to
 // nothing meaningful if supabaseClient.js couldn't build a client; App.jsx
@@ -37,6 +59,7 @@ const EMPTY = {
 export function useSupabaseDataSource() {
   const [data, setData] = useState(EMPTY);
   const [loaded, setLoaded] = useState(false);
+  const [writeError, setWriteError] = useState(null);
   const fetchingRef = useRef(false);
 
   const fetchAll = useCallback(async () => {
@@ -94,33 +117,59 @@ export function useSupabaseDataSource() {
 
   const add = async (key, record) => {
     const table = TABLES[key];
-    if (!table) return;
+    if (!table) return { ok: false, error: "Unknown table" };
     const { data: inserted, error } = await supabase.from(table).insert(toSnake(record)).select().single();
-    if (error) { console.error(`Fabrica: insert into ${table} failed`, error); return; }
+    if (error) {
+      console.error(`Fabrica: insert into ${table} failed`, error);
+      setWriteError(friendlyError(error, "save"));
+      return { ok: false, error };
+    }
+    setWriteError(null);
     setData((d) => ({ ...d, [key]: [...d[key], toCamel(inserted)] }));
-    return inserted.id;
+    return { ok: true, id: inserted.id };
   };
 
   const update = async (key, id, patch) => {
     const table = TABLES[key];
-    if (!table) return;
+    if (!table) return { ok: false, error: "Unknown table" };
     setData((d) => ({ ...d, [key]: d[key].map((r) => (r.id === id ? { ...r, ...patch } : r)) })); // optimistic
     const { error } = await supabase.from(table).update(toSnake(patch)).eq("id", id);
-    if (error) { console.error(`Fabrica: update ${table} failed`, error); fetchAll(); }
+    if (error) {
+      console.error(`Fabrica: update ${table} failed`, error);
+      setWriteError(friendlyError(error, "update"));
+      fetchAll(); // roll back the optimistic change to whatever's actually saved
+      return { ok: false, error };
+    }
+    setWriteError(null);
+    return { ok: true };
   };
 
   const remove = async (key, id) => {
     const table = TABLES[key];
-    if (!table) return;
+    if (!table) return { ok: false, error: "Unknown table" };
     setData((d) => ({ ...d, [key]: d[key].filter((r) => r.id !== id) })); // optimistic
     const { error } = await supabase.from(table).delete().eq("id", id);
-    if (error) { console.error(`Fabrica: delete from ${table} failed`, error); fetchAll(); }
+    if (error) {
+      console.error(`Fabrica: delete from ${table} failed`, error);
+      setWriteError(friendlyError(error, "delete"));
+      fetchAll();
+      return { ok: false, error };
+    }
+    setWriteError(null);
+    return { ok: true };
   };
 
   const updateSettings = async (patch) => {
     setData((d) => ({ ...d, ...patch })); // optimistic
     const { error } = await supabase.from("app_settings").update(toSnake(patch)).eq("id", 1);
-    if (error) { console.error("Fabrica: settings update failed", error); fetchAll(); }
+    if (error) {
+      console.error("Fabrica: settings update failed", error);
+      setWriteError(friendlyError(error, "save"));
+      fetchAll();
+      return { ok: false, error };
+    }
+    setWriteError(null);
+    return { ok: true };
   };
 
   const setCustomUnits = (custom) => updateSettings({ customUnits: custom });
@@ -166,6 +215,6 @@ export function useSupabaseDataSource() {
   return {
     data, loaded, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
     addIngredientToRecipe, addSegment, addWholesaleSubCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding,
+    setCurrency, setBranding, writeError, clearWriteError: () => setWriteError(null),
   };
 }

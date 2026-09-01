@@ -19,13 +19,15 @@ export function useLocalDataSource() {
   const add = (key, record) => {
     const id = makeId(key.slice(0, 3));
     setData((d) => ({ ...d, [key]: [...d[key], { id, ...record }] }));
-    return id;
+    return { ok: true, id };
   };
   const remove = (key, id) => {
     setData((d) => ({ ...d, [key]: d[key].filter((r) => r.id !== id) }));
+    return { ok: true };
   };
   const update = (key, id, patch) => {
     setData((d) => ({ ...d, [key]: d[key].map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
+    return { ok: true };
   };
   const setCustomUnits = (custom) => setData((d) => ({ ...d, customUnits: custom }));
   const setActiveRole = (role) => setData((d) => ({ ...d, activeRole: role }));
@@ -56,6 +58,6 @@ export function useLocalDataSource() {
   return {
     data, loaded: true, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
     addIngredientToRecipe, addSegment, addWholesaleSubCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding,
+    setCurrency, setBranding, writeError: null, clearWriteError: () => {},
   };
 }
