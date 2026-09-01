@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
 import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation } from "../lib/calc";
-import { allUnits } from "../lib/uom";
+import { allUnits, toBase } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -24,6 +24,7 @@ export default function Production() {
   const [expandedRun, setExpandedRun] = useState(null);
   const [addingOutputTo, setAddingOutputTo] = useState(null);
   const [extraOutput, setExtraOutput] = useState({ productId: "" });
+  const [formError, setFormError] = useState("");
 
   const ledger = materialLedger(data);
   const ledgerByItem = Object.fromEntries(ledger.map((m) => [m.itemName, m]));
@@ -76,8 +77,38 @@ export default function Production() {
     update("productionRuns", run.id, { outputs: nextOutputs });
   };
 
+  const checkStockAvailability = () => {
+    // Sum requested quantity per material (in its base unit), in case the
+    // same material appears on more than one row, then compare each
+    // material's total against what's actually left in stock right now.
+    const requestedBaseByItem = {};
+    for (const row of inputs) {
+      if (!row.itemName || !row.quantity) continue;
+      const qtyBase = toBase(parseFloat(row.quantity) || 0, row.unit, data.customUnits);
+      requestedBaseByItem[row.itemName] = (requestedBaseByItem[row.itemName] || 0) + qtyBase;
+    }
+    const violations = [];
+    for (const [itemName, requestedBase] of Object.entries(requestedBaseByItem)) {
+      const ledgerRow = ledgerByItem[itemName];
+      const remaining = ledgerRow?.remainingBase || 0;
+      const baseUnit = ledgerRow?.baseUnit || "";
+      if (requestedBase > remaining + 1e-9) {
+        violations.push(
+          `${itemName} exceeds what's in stock — you're using ${requestedBase.toFixed(2)}${baseUnit} but only ${remaining.toFixed(2)}${baseUnit} is available.`
+        );
+      }
+    }
+    return violations;
+  };
+
   const submit = (e) => {
     e.preventDefault();
+    setFormError("");
+    const violations = checkStockAvailability();
+    if (violations.length > 0) {
+      setFormError(violations.join(" "));
+      return;
+    }
     add("productionRuns", {
       batchCode: batchCode || `PRD-${Math.floor(Math.random() * 9000 + 1000)}`,
       date,
@@ -89,7 +120,7 @@ export default function Production() {
     });
     setBatchCode(""); setInputs([{ ...blankInput }]); setInputsTouched(false);
     setOutputs([{ ...blankOutput }]); setLaborCost(""); setOverheads([{ category: "Electricity", cost: "" }]);
-    setNotes(""); setOpen(false);
+    setNotes(""); setFormError(""); setOpen(false);
   };
 
   return (
@@ -138,7 +169,7 @@ export default function Production() {
               <div className="space-y-2 overflow-x-auto">
                 {inputs.map((row, i) => (
                   <div key={i} className="grid grid-cols-8 gap-2 items-center min-w-[600px]">
-                    <select className={`${inputCls} col-span-3`} value={row.itemName} onChange={(e) => { updateRow(inputs, setInputs, i, { itemName: e.target.value }); setInputsTouched(true); }}>
+                    <select className={`${inputCls} col-span-3`} value={row.itemName} onChange={(e) => { updateRow(inputs, setInputs, i, { itemName: e.target.value }); setInputsTouched(true); setFormError(""); }}>
                       <option value="">Material…</option>
                       {allKnownMaterials.map((name) => (
                         <option key={name} value={name}>
@@ -146,8 +177,8 @@ export default function Production() {
                         </option>
                       ))}
                     </select>
-                    <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="qty used" value={row.quantity} onChange={(e) => { updateRow(inputs, setInputs, i, { quantity: e.target.value }); setInputsTouched(true); }} />
-                    <select className={`${inputCls} col-span-2`} value={row.unit} onChange={(e) => { updateRow(inputs, setInputs, i, { unit: e.target.value }); setInputsTouched(true); }}>
+                    <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="qty used" value={row.quantity} onChange={(e) => { updateRow(inputs, setInputs, i, { quantity: e.target.value }); setInputsTouched(true); setFormError(""); }} />
+                    <select className={`${inputCls} col-span-2`} value={row.unit} onChange={(e) => { updateRow(inputs, setInputs, i, { unit: e.target.value }); setInputsTouched(true); setFormError(""); }}>
                       {units.map((u) => <option key={u.unit} value={u.unit}>{u.unit}</option>)}
                     </select>
                     {row.itemName && inputIsOffRecipe(row) ? (
@@ -178,6 +209,12 @@ export default function Production() {
             </div>
 
             <Field label="Notes"><input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+
+            {formError && (
+              <div className="chip px-3 py-2 rounded border border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]">
+                ⚠ {formError}
+              </div>
+            )}
 
             <div className="flex justify-end gap-2">
               <button type="button" className={btnGhostCls} onClick={() => setOpen(false)}>Cancel</button>

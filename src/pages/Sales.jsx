@@ -16,6 +16,7 @@ export default function Sales() {
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [items, setItems] = useState([{ ...blankItem }]);
   const [amountPaid, setAmountPaid] = useState("");
+  const [formError, setFormError] = useState("");
 
   const lines = salesWithMargin(data);
   const inv = finishedGoodsInventory(data);
@@ -44,8 +45,34 @@ export default function Sales() {
   const orderTotal = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0), 0);
   const balance = orderTotal - (amountPaid === "" ? orderTotal : parseFloat(amountPaid) || 0);
 
+  const checkStockAvailability = () => {
+    // Sum requested quantity per product, in case the same product is
+    // added on more than one line, then compare against what's actually
+    // on the shelf right now.
+    const requestedByProduct = {};
+    for (const item of items) {
+      if (!item.productId || !item.quantity) continue;
+      requestedByProduct[item.productId] = (requestedByProduct[item.productId] || 0) + (parseFloat(item.quantity) || 0);
+    }
+    const violations = [];
+    for (const [productId, requested] of Object.entries(requestedByProduct)) {
+      const onHand = onHandByProduct[productId] || 0;
+      if (requested > onHand) {
+        const name = productById[productId] ? `${productById[productId].name} · ${productById[productId].packSize}` : "This product";
+        violations.push(`${name} exceeds what's in stock — you're selling ${requested} but only ${onHand} is available.`);
+      }
+    }
+    return violations;
+  };
+
   const submit = (e) => {
     e.preventDefault();
+    setFormError("");
+    const violations = checkStockAvailability();
+    if (violations.length > 0) {
+      setFormError(violations.join(" "));
+      return;
+    }
     add("salesOrders", {
       customerId,
       date: date || new Date().toISOString().slice(0, 10),
@@ -55,7 +82,7 @@ export default function Sales() {
         .filter((i) => i.productId && i.quantity)
         .map((i) => ({ productId: i.productId, quantity: parseFloat(i.quantity) || 0, unitPrice: parseFloat(i.unitPrice) || 0 })),
     });
-    setCustomerId(""); setDate(""); setPaymentMode("Cash"); setItems([{ ...blankItem }]); setAmountPaid(""); setOpen(false);
+    setCustomerId(""); setDate(""); setPaymentMode("Cash"); setItems([{ ...blankItem }]); setAmountPaid(""); setFormError(""); setOpen(false);
   };
 
   const recordPayment = (order, value) => {
@@ -100,7 +127,7 @@ export default function Sales() {
                       <option value="">Product…</option>
                       {data.products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.packSize} — {onHandByProduct[p.id] ?? 0} on hand</option>)}
                     </select>
-                    <input type="number" className={`${inputCls} col-span-2`} placeholder="qty" value={row.quantity} onChange={(e) => updateItem(i, { quantity: e.target.value })} />
+                    <input type="number" className={`${inputCls} col-span-2`} placeholder="qty" value={row.quantity} onChange={(e) => { updateItem(i, { quantity: e.target.value }); setFormError(""); }} />
                     <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="unit price" value={row.unitPrice} onChange={(e) => updateItem(i, { unitPrice: e.target.value })} />
                     <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>remove</button>
                   </div>
@@ -122,6 +149,12 @@ export default function Sales() {
                 </span>
               </div>
             </div>
+
+            {formError && (
+              <div className="chip px-3 py-2 rounded border border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]">
+                ⚠ {formError}
+              </div>
+            )}
 
             <div className="flex justify-end gap-2">
               <button type="button" className={btnGhostCls} onClick={() => setOpen(false)}>Cancel</button>
