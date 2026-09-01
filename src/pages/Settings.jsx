@@ -221,8 +221,17 @@ export default function Settings() {
       </Panel>
 
       <Panel title="Data" eyebrow="Export, reload the demo dataset, or start clean">
+        <BackupReminder branding={branding} />
         <div className="flex flex-wrap gap-3">
-          <button className={btnCls} onClick={() => exportAllToExcel(data)}>Download all data (Excel)</button>
+          <button
+            className={btnCls}
+            onClick={() => {
+              exportAllToExcel(data);
+              setBranding({ lastBackupAt: new Date().toISOString() });
+            }}
+          >
+            Download all data (Excel)
+          </button>
           {!supabaseEnabled && (
             <button className={btnGhostCls} onClick={() => { if (confirm("Reset all data back to the example dataset? This can't be undone.")) resetToSeed(); }}>Reset to example data</button>
           )}
@@ -244,6 +253,23 @@ export default function Settings() {
             : "Everything is stored in this browser's local storage — nothing leaves the device this is opened on. \"Clear all data\" wipes it to a blank slate (useful once you're done testing and ready to enter your real business data). \"Reset to example data\" reloads the sample granola-business dataset instead."}
         </p>
       </Panel>
+    </div>
+  );
+}
+
+function BackupReminder({ branding }) {
+  const lastBackupAt = branding?.lastBackupAt;
+  const daysSince = lastBackupAt
+    ? Math.floor((new Date() - new Date(lastBackupAt)) / (1000 * 60 * 60 * 24))
+    : null;
+  const overdue = daysSince === null || daysSince >= 7;
+
+  return (
+    <div className={`text-sm mb-3 flex items-center gap-2 ${overdue ? "text-[var(--accent)]" : "text-ink-400"}`}>
+      {overdue && <span>⚠</span>}
+      {lastBackupAt
+        ? `Last backup: ${daysSince === 0 ? "today" : `${daysSince} day${daysSince > 1 ? "s" : ""} ago`}${overdue ? " — due for another one" : ""}`
+        : "No backup taken yet — there's currently no copy of this data outside the live database."}
     </div>
   );
 }

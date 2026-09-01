@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
-import { overviewMetrics, materialLedger, finishedGoodsInventory, salesWithMargin, inRange, salesTrend, performanceByAttribute } from "../lib/calc";
+import { overviewMetrics, materialLedger, finishedGoodsInventory, salesWithMargin, inRange, salesTrend, performanceByAttribute, runsAwaitingCount } from "../lib/calc";
 import StatCard from "../components/StatCard";
 import DateRangeFilter from "../components/DateRangeFilter";
 import Panel from "../components/Panel";
@@ -25,6 +25,7 @@ export default function Overview() {
   const salesInRange = salesWithMargin(data).filter((s) => inRange(s.date, range.from, range.to));
   const trend = salesTrend(data, range, groupBy);
   const bySegment = performanceByAttribute(data, "segment");
+  const awaitingCount = runsAwaitingCount(data);
 
   const rawValue = ledger.reduce((s, r) => s + r.valueRemaining, 0);
   const finishedValue = inv.reduce((s, r) => s + r.valueOnHand, 0);
@@ -67,6 +68,28 @@ export default function Overview() {
           ))}
         </div>
       </div>
+
+      {awaitingCount.length > 0 && (
+        <div className="bg-ink-800 border border-[var(--accent)]/50 rounded-lg p-4 flex items-start gap-3">
+          <span className="text-[var(--accent)] text-lg leading-none">⚠</span>
+          <div>
+            <div className="text-sm text-ink-100">
+              {awaitingCount.length} production run{awaitingCount.length > 1 ? "s" : ""} awaiting a physical count
+            </div>
+            <div className="text-xs text-ink-400 mt-1">
+              {awaitingCount.slice(0, 4).map(({ run, daysSince }) => (
+                <span key={run.id} className="chip mr-3">
+                  {run.batchCode} — {daysSince === 0 ? "today" : `${daysSince}d ago`}
+                </span>
+              ))}
+              {awaitingCount.length > 4 && <span className="chip">+{awaitingCount.length - 4} more</span>}
+            </div>
+            <p className="text-xs text-ink-500 mt-1.5">
+              These runs contribute nothing to recorded inventory until counted — head to Production to log it.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Revenue in range" value={money(m.totalRevenue)} tone="moss" />

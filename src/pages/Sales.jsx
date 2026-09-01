@@ -65,6 +65,23 @@ export default function Sales() {
     return violations;
   };
 
+  const checkBelowCost = () => {
+    const costByProduct = Object.fromEntries(inv.map((r) => [r.product.id, r.avgCostPerUnit]));
+    const warnings = [];
+    for (const item of items) {
+      if (!item.productId || item.unitPrice === "") continue;
+      const price = parseFloat(item.unitPrice) || 0;
+      const cost = costByProduct[item.productId] || 0;
+      const name = productById[item.productId] ? `${productById[item.productId].name} · ${productById[item.productId].packSize}` : "This product";
+      if (price <= 0) {
+        warnings.push(`${name} is priced at ${money(price)}.`);
+      } else if (cost > 0 && price < cost) {
+        warnings.push(`${name} is priced at ${money(price)}, below its cost of ${money(cost)}.`);
+      }
+    }
+    return warnings;
+  };
+
   const submit = (e) => {
     e.preventDefault();
     setFormError("");
@@ -72,6 +89,13 @@ export default function Sales() {
     if (violations.length > 0) {
       setFormError(violations.join(" "));
       return;
+    }
+    const belowCostWarnings = checkBelowCost();
+    if (belowCostWarnings.length > 0) {
+      const proceed = confirm(
+        `${belowCostWarnings.join(" ")} Save this order anyway?`
+      );
+      if (!proceed) return;
     }
     add("salesOrders", {
       customerId,
@@ -85,8 +109,16 @@ export default function Sales() {
     setCustomerId(""); setDate(""); setPaymentMode("Cash"); setItems([{ ...blankItem }]); setAmountPaid(""); setFormError(""); setOpen(false);
   };
 
-  const recordPayment = (order, value) => {
-    update("salesOrders", order.id, { amountPaid: parseFloat(value) || 0 });
+  const recordPayment = (order, value, mode) => {
+    update("salesOrders", order.id, { amountPaid: parseFloat(value) || 0, paymentMode: mode || order.paymentMode });
+  };
+  const [paymentDrafts, setPaymentDrafts] = useState({});
+  const updatePaymentDraft = (orderId, patch) => setPaymentDrafts((d) => ({ ...d, [orderId]: { ...d[orderId], ...patch } }));
+  const savePayment = (order) => {
+    const draft = paymentDrafts[order.id];
+    if (!draft?.amount) return;
+    recordPayment(order, draft.amount, draft.mode);
+    setPaymentDrafts((d) => { const next = { ...d }; delete next[order.id]; return next; });
   };
 
   return (
@@ -189,18 +221,27 @@ export default function Sales() {
                     ) : (
                       <span className="chip text-ink-500">fully paid</span>
                     )}
-                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("salesOrders", orderId)}>remove order</button>
+                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm("Remove this order? This can't be undone.")) remove("salesOrders", orderId); }}>remove order</button>
                   </div>
                 </div>
                 {orderBalance > 0.004 && (
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
                     <span className="chip text-ink-500">Record payment received:</span>
                     <input
                       type="number" step="0.01"
-                      className={`${inputCls} w-32`}
+                      className={`${inputCls} w-28`}
                       placeholder={paid.toFixed(2)}
-                      onBlur={(e) => { if (e.target.value) recordPayment(order, e.target.value); }}
+                      value={paymentDrafts[orderId]?.amount ?? ""}
+                      onChange={(e) => updatePaymentDraft(orderId, { amount: e.target.value })}
                     />
+                    <select
+                      className={`${inputCls} w-28`}
+                      value={paymentDrafts[orderId]?.mode ?? order.paymentMode}
+                      onChange={(e) => updatePaymentDraft(orderId, { mode: e.target.value })}
+                    >
+                      {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <button type="button" className="chip text-[var(--accent)]" onClick={() => savePayment(order)}>save</button>
                   </div>
                 )}
                 <div className="overflow-x-auto">

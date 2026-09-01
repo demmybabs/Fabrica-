@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
 import { materialLedger } from "../lib/calc";
-import { allUnits } from "../lib/uom";
+import { allUnits, formatQuantity } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -136,9 +136,9 @@ export default function Supply() {
               {ledger.map((r) => (
                 <tr key={r.itemName} className="border-b border-ink-700/60 text-ink-200">
                   <td className="py-2 pr-4">{r.itemName}</td>
-                  <td className="py-2 pr-4 text-right chip">{r.suppliedBase.toFixed(1)} {r.baseUnit}</td>
-                  <td className="py-2 pr-4 text-right chip">{r.consumedBase.toFixed(1)} {r.baseUnit}</td>
-                  <td className="py-2 pr-4 text-right chip text-brass-400">{r.remainingBase.toFixed(1)} {r.baseUnit}</td>
+                  <td className="py-2 pr-4 text-right chip">{formatQuantity(r.suppliedBase, r.baseUnit)}</td>
+                  <td className="py-2 pr-4 text-right chip">{formatQuantity(r.consumedBase, r.baseUnit)}</td>
+                  <td className="py-2 pr-4 text-right chip text-brass-400">{formatQuantity(r.remainingBase, r.baseUnit)}</td>
                   <td className="py-2 pr-4 text-right chip">{money(r.avgUnitCostBase)}</td>
                   <td className="py-2 pr-4 text-right chip">{money(r.valueRemaining)}</td>
                   <td className="py-2 pr-4 text-right chip text-[var(--accent)]">{r.payable > 0 ? money(r.payable) : "—"}</td>
@@ -167,7 +167,7 @@ export default function Supply() {
                   <td className="py-2 pr-4">{s.name}</td>
                   <td className="py-2 pr-4 text-ink-400">{s.contact || "—"}</td>
                   <td className="py-2 pr-4 text-right chip">{batchCountBySupplier[s.id] || 0}</td>
-                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("suppliers", s.id)}>remove</button></td>
+                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove supplier "${s.name}"? This can't be undone.`)) remove("suppliers", s.id); }}>remove</button></td>
                 </tr>
               ))}
               {data.suppliers.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-ink-500">No suppliers yet — onboard your first one above.</td></tr>}
@@ -199,7 +199,7 @@ export default function Supply() {
                   <td className="py-2 pr-4 text-right chip">{b.quantity} {b.unit}</td>
                   <td className="py-2 pr-4 text-right chip">{money(b.totalCost)}</td>
                   <td className="py-2 pr-4 text-right chip">{money(b.amountPaid)}</td>
-                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("supplyBatches", b.id)}>remove</button></td>
+                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove this delivery of ${b.itemName}? This can't be undone.`)) remove("supplyBatches", b.id); }}>remove</button></td>
                 </tr>
               ))}
             </tbody>

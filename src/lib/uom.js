@@ -63,3 +63,19 @@ export function allUnits(custom = {}) {
     Object.keys(def.factors).map((u) => ({ unit: u, category: cat }))
   );
 }
+
+// Formats a base-unit quantity (grams, millilitres) into whatever unit
+// reads naturally at that scale — kilograms once a weight crosses into
+// the thousands of grams, litres once a volume does the same. The
+// internal base-unit conversion is still what makes the math correct
+// across mixed units; this only changes what gets displayed.
+export function formatQuantity(baseAmount, baseUnit, decimals = 1) {
+  const amount = baseAmount || 0;
+  if (baseUnit === "g" && Math.abs(amount) >= 1000) {
+    return `${(amount / 1000).toFixed(decimals)}kg`;
+  }
+  if (baseUnit === "ml" && Math.abs(amount) >= 1000) {
+    return `${(amount / 1000).toFixed(decimals)}l`;
+  }
+  return `${amount.toFixed(decimals)}${baseUnit}`;
+}

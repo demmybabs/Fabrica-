@@ -214,7 +214,7 @@ export default function Customers() {
                           {editingPricesFor === row.customer.id ? "close" : "prices"}
                         </button>
                       )}
-                      <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("customers", row.customer.id)}>remove</button>
+                      <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove ${row.customer.name}? This can't be undone.`)) remove("customers", row.customer.id); }}>remove</button>
                     </td>
                   </tr>
                   {editingPricesFor === row.customer.id && (

@@ -155,7 +155,7 @@ export default function Products() {
                     <span className="chip text-ink-500 ml-2">{product.flavor} · {product.packSize}</span>
                   </div>
                 </div>
-                <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("products", product.id)}>remove product</button>
+                <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove ${product.name} (${product.packSize})? This can't be undone.`)) remove("products", product.id); }}>remove product</button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">

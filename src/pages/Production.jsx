@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
 import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation } from "../lib/calc";
-import { allUnits, toBase } from "../lib/uom";
+import { allUnits, toBase, formatQuantity } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -173,7 +173,7 @@ export default function Production() {
                       <option value="">Material…</option>
                       {allKnownMaterials.map((name) => (
                         <option key={name} value={name}>
-                          {ledgerByItem[name] ? `${name} (${ledgerByItem[name].remainingBase.toFixed(1)} ${ledgerByItem[name].baseUnit} left)` : `${name} (not yet supplied)`}
+                          {ledgerByItem[name] ? `${name} (${formatQuantity(ledgerByItem[name].remainingBase, ledgerByItem[name].baseUnit)} left)` : `${name} (not yet supplied)`}
                         </option>
                       ))}
                     </select>
@@ -245,7 +245,7 @@ export default function Production() {
                   <div className="flex items-center gap-4">
                     <span className="chip text-ink-400">materials {money(materialCost)} · labor {money(run.laborCost)} · overhead {money(overheadTotal)}</span>
                     <span className="chip text-[var(--accent)]">total {money(totalRunCost)}</span>
-                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("productionRuns", run.id)}>remove</button>
+                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove production run ${run.batchCode}? This can't be undone.`)) remove("productionRuns", run.id); }}>remove</button>
                   </div>
                 </div>
                 {run.overheadCosts?.length > 0 && (

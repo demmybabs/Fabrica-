@@ -326,6 +326,22 @@ export function inRange(dateStr, from, to) {
   return true;
 }
 
+// Runs where at least one output has neither a physical count nor a
+// legacy logged quantity — meaning it's contributing zero to recorded
+// inventory even though it physically exists. This is a visibility flag,
+// not an enforcement: it doesn't block anything, it just makes sure an
+// uncounted batch can't quietly go unnoticed.
+export function runsAwaitingCount(data) {
+  const today = new Date();
+  return data.productionRuns
+    .filter((run) => run.outputs.some((o) => o.countedQuantity === undefined && o.quantity === undefined))
+    .map((run) => {
+      const daysSince = Math.floor((today - new Date(run.date + "T00:00:00")) / (1000 * 60 * 60 * 24));
+      return { run, daysSince: Math.max(0, daysSince) };
+    })
+    .sort((a, b) => b.daysSince - a.daysSince);
+}
+
 export function overviewMetrics(data, range = {}) {
   const { from, to } = range;
   const lines = salesWithMargin(data).filter((s) => inRange(s.date, from, to));

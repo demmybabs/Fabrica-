@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
 import { finishedGoodsInventory, materialLedger, estimateSpoilageValue } from "../lib/calc";
-import { allUnits } from "../lib/uom";
+import { allUnits, formatQuantity } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -79,7 +79,7 @@ export default function Inventory() {
                 <Field label="Material">
                   <select className={inputCls} value={spoilForm.itemName} onChange={(e) => setSpoilForm({ ...spoilForm, itemName: e.target.value })} required>
                     <option value="">Select…</option>
-                    {ledger.map((m) => <option key={m.itemName} value={m.itemName}>{m.itemName} ({m.remainingBase.toFixed(1)} {m.baseUnit} left)</option>)}
+                    {ledger.map((m) => <option key={m.itemName} value={m.itemName}>{m.itemName} ({formatQuantity(m.remainingBase, m.baseUnit)} left)</option>)}
                   </select>
                 </Field>
                 <Field label="Unit">
@@ -155,8 +155,8 @@ export default function Inventory() {
               {ledger.map((r) => (
                 <tr key={r.itemName} className="border-b border-ink-700/60 text-ink-200">
                   <td className="py-2 pr-4">{r.itemName}</td>
-                  <td className="py-2 pr-4 text-right chip">{r.spoiledBase > 0 ? `${r.spoiledBase.toFixed(1)} ${r.baseUnit}` : "—"}</td>
-                  <td className="py-2 pr-4 text-right chip">{r.remainingBase.toFixed(1)} {r.baseUnit}</td>
+                  <td className="py-2 pr-4 text-right chip">{r.spoiledBase > 0 ? formatQuantity(r.spoiledBase, r.baseUnit) : "—"}</td>
+                  <td className="py-2 pr-4 text-right chip">{formatQuantity(r.remainingBase, r.baseUnit)}</td>
                   <td className="py-2 pr-4 text-right chip">{money(r.valueRemaining)}</td>
                 </tr>
               ))}
@@ -188,7 +188,7 @@ export default function Inventory() {
                     <td className="py-2 pr-4 text-right chip">{s.quantity} {s.kind === "material" ? s.unit : "unit"}</td>
                     <td className="py-2 pr-4 text-ink-400 text-xs">{s.reason || "—"}</td>
                     <td className="py-2 pr-4 text-right chip text-[var(--accent)]">{money(s.valueLost || 0)}</td>
-                    <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => remove("spoilage", s.id)}>remove</button></td>
+                    <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm("Remove this spoilage entry? This can't be undone.")) remove("spoilage", s.id); }}>remove</button></td>
                   </tr>
                 );
               })}
