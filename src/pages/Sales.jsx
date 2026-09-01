@@ -7,6 +7,7 @@ import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
 const paymentModes = ["Cash", "POS", "Transfer", "Credit"];
 const blankItem = { productId: "", quantity: "", unitPrice: "" };
+const blankPayment = { amount: "", mode: "Cash" };
 
 export default function Sales() {
   const { data, add, update, remove } = useApp();
@@ -15,9 +16,8 @@ export default function Sales() {
   const [open, setOpen] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [date, setDate] = useState("");
-  const [paymentMode, setPaymentMode] = useState("Cash");
   const [items, setItems] = useState([{ ...blankItem }]);
-  const [amountPaid, setAmountPaid] = useState("");
+  const [payments, setPayments] = useState([{ ...blankPayment }]);
   const [formError, setFormError] = useState("");
   const [paymentDrafts, setPaymentDrafts] = useState({});
 
@@ -46,7 +46,9 @@ export default function Sales() {
   };
 
   const orderTotal = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unitPrice) || 0), 0);
-  const balance = orderTotal - (amountPaid === "" ? orderTotal : parseFloat(amountPaid) || 0);
+  const totalEnteredPayments = payments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const balance = orderTotal - totalEnteredPayments;
+  const updatePayment = (i, patch) => setPayments(payments.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   const checkStockAvailability = () => {
     // Sum requested quantity per product, in case the same product is
@@ -98,19 +100,23 @@ export default function Sales() {
       const proceed = await confirmAction(`${belowCostWarnings.join(" ")} Save this order anyway?`, { confirmLabel: "Save anyway" });
       if (!proceed) return;
     }
-    const paidNow = amountPaid === "" ? orderTotal : parseFloat(amountPaid) || 0;
+    const paymentDate = date || new Date().toISOString().slice(0, 10);
+    const enteredPayments = payments
+      .filter((p) => p.amount !== "" && parseFloat(p.amount) > 0)
+      .map((p) => ({ amount: parseFloat(p.amount) || 0, mode: p.mode, date: paymentDate }));
     add("salesOrders", {
       customerId,
-      date: date || new Date().toISOString().slice(0, 10),
-      // payments is the real source of truth going forward — a list, not
-      // a single amount/mode, so a balance paid off partly by POS and
-      // partly by transfer later doesn't overwrite this first entry.
-      payments: [{ amount: paidNow, mode: paymentMode, date: date || new Date().toISOString().slice(0, 10) }],
+      date: paymentDate,
+      // payments is the real source of truth — a list, not a single
+      // amount/mode, so a sale paid partly by POS and partly by cash at
+      // the same checkout is recorded as two lines, not one overwriting
+      // the other.
+      payments: enteredPayments,
       items: items
         .filter((i) => i.productId && i.quantity)
         .map((i) => ({ productId: i.productId, quantity: parseFloat(i.quantity) || 0, unitPrice: parseFloat(i.unitPrice) || 0 })),
     });
-    setCustomerId(""); setDate(""); setPaymentMode("Cash"); setItems([{ ...blankItem }]); setAmountPaid(""); setFormError(""); setOpen(false);
+    setCustomerId(""); setDate(""); setItems([{ ...blankItem }]); setPayments([{ ...blankPayment }]); setFormError(""); setOpen(false);
   };
 
   const updatePaymentDraft = (orderId, patch) => setPaymentDrafts((d) => ({ ...d, [orderId]: { ...d[orderId], ...patch } }));
@@ -137,7 +143,7 @@ export default function Sales() {
       {open && (
         <Panel title="New sale" eyebrow="One checkout, as many products as the customer is buying">
           <form onSubmit={submit} className="space-y-5">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <Field label="Customer">
                 <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
                   <option value="">Select…</option>
@@ -145,11 +151,6 @@ export default function Sales() {
                 </select>
               </Field>
               <Field label="Date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-              <Field label="Payment mode">
-                <select className={inputCls} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
-                  {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </Field>
             </div>
 
             <div>
@@ -173,13 +174,39 @@ export default function Sales() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Amount paid by customer">
-                <input type="number" min="0" step="0.01" className={inputCls} value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={orderTotal ? orderTotal.toFixed(2) : "0.00"} />
-              </Field>
-              <div className="flex items-end">
+            <div>
+              <div className="chip text-ink-400 uppercase mb-2">
+                How the customer is paying — add a line per method if it's split (e.g. part POS, part cash)
+              </div>
+              <div className="space-y-2">
+                {payments.map((row, i) => (
+                  <div key={i} className="grid grid-cols-6 gap-2 items-center">
+                    <input
+                      type="number" min="0" step="0.01"
+                      className={`${inputCls} col-span-3`}
+                      placeholder="amount"
+                      value={row.amount}
+                      onChange={(e) => updatePayment(i, { amount: e.target.value })}
+                    />
+                    <select className={`${inputCls} col-span-2`} value={row.mode} onChange={(e) => updatePayment(i, { mode: e.target.value })}>
+                      {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                    {payments.length > 1 && (
+                      <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => setPayments(payments.filter((_, idx) => idx !== i))}>remove</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                <button type="button" className={btnGhostCls} onClick={() => setPayments([...payments, { ...blankPayment }])}>+ add payment method</button>
                 <span className="chip text-ink-400">
-                  {balance > 0.004 ? <>Balance — becomes a <span className="text-[var(--accent)]">receivable</span> of {money(balance)}</> : "Fully paid — leave blank to default to the full total"}
+                  {balance > 0.004 ? (
+                    <>Balance — becomes a <span className="text-[var(--accent)]">receivable</span> of {money(balance)}</>
+                  ) : totalEnteredPayments > 0 ? (
+                    "Fully paid"
+                  ) : (
+                    "Leave amounts blank to record this as fully paid"
+                  )}
                 </span>
               </div>
             </div>
@@ -239,23 +266,25 @@ export default function Sales() {
                 </div>
 
                 {orderBalance > 0.004 && (
-                  <div className="flex items-center gap-2 mb-3 flex-wrap">
-                    <span className="chip text-ink-500">Add a payment:</span>
-                    <input
-                      type="number" min="0" step="0.01"
-                      className={`${inputCls} w-28`}
-                      placeholder="amount"
-                      value={paymentDrafts[orderId]?.amount ?? ""}
-                      onChange={(e) => updatePaymentDraft(orderId, { amount: e.target.value })}
-                    />
-                    <select
-                      className={`${inputCls} w-28`}
-                      value={paymentDrafts[orderId]?.mode ?? paymentModes[0]}
-                      onChange={(e) => updatePaymentDraft(orderId, { mode: e.target.value })}
-                    >
-                      {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                    <button type="button" className="chip text-[var(--accent)]" onClick={() => addPayment(order, total)}>save</button>
+                  <div className="mb-3">
+                    <div className="chip text-ink-500 mb-1.5">Customer paying off the remaining balance now:</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input
+                        type="number" min="0" step="0.01"
+                        className={`${inputCls} w-28`}
+                        placeholder="amount"
+                        value={paymentDrafts[orderId]?.amount ?? ""}
+                        onChange={(e) => updatePaymentDraft(orderId, { amount: e.target.value })}
+                      />
+                      <select
+                        className={`${inputCls} w-28`}
+                        value={paymentDrafts[orderId]?.mode ?? paymentModes[0]}
+                        onChange={(e) => updatePaymentDraft(orderId, { mode: e.target.value })}
+                      >
+                        {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                      <button type="button" className="chip text-[var(--accent)]" onClick={() => addPayment(order, total)}>save</button>
+                    </div>
                   </div>
                 )}
 
