@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
+import { useConfirm } from "../lib/ConfirmContext";
 import { finishedGoodsInventory, materialLedger, estimateSpoilageValue } from "../lib/calc";
 import { allUnits, formatQuantity } from "../lib/uom";
 import Panel from "../components/Panel";
@@ -9,6 +10,7 @@ const blankSpoil = { kind: "product", productId: "", itemName: "", quantity: "",
 
 export default function Inventory() {
   const { data, add, remove } = useApp();
+  const confirmAction = useConfirm();
   const money = useMoney();
   const [openSpoil, setOpenSpoil] = useState(false);
   const [spoilForm, setSpoilForm] = useState(blankSpoil);
@@ -89,7 +91,7 @@ export default function Inventory() {
                 </Field>
               </>
             )}
-            <Field label="Units spoilt"><input type="number" step="0.01" className={inputCls} value={spoilForm.quantity} onChange={(e) => setSpoilForm({ ...spoilForm, quantity: e.target.value })} required /></Field>
+            <Field label="Units spoilt"><input type="number" min="0" step="0.01" className={inputCls} value={spoilForm.quantity} onChange={(e) => setSpoilForm({ ...spoilForm, quantity: e.target.value })} required /></Field>
             <Field label="Date"><input type="date" className={inputCls} value={spoilForm.date} onChange={(e) => setSpoilForm({ ...spoilForm, date: e.target.value })} /></Field>
             <Field label="Notes — how it spoiled">
               <input className={inputCls} value={spoilForm.reason} onChange={(e) => setSpoilForm({ ...spoilForm, reason: e.target.value })} placeholder="e.g. left out overnight, packaging burst" />
@@ -114,7 +116,7 @@ export default function Inventory() {
                 <th className="py-2 pr-4 text-right">Sold</th>
                 <th className="py-2 pr-4 text-right">Spoiled</th>
                 <th className="py-2 pr-4 text-right">On hand</th>
-                <th className="py-2 pr-4 text-right">Avg cost / unit</th>
+                <th className="py-2 pr-4 text-right">Avg cost / unit <span className="text-ink-600 normal-case">(est.)</span></th>
                 <th className="py-2 pr-4 text-right">Value on hand</th>
               </tr>
             </thead>
@@ -138,6 +140,10 @@ export default function Inventory() {
             </tbody>
           </table>
         </div>
+        <p className="text-xs text-ink-500 mt-3">
+          Cost per unit is an estimate — for a run that made several products together, the shared
+          materials are split proportionally by output size, not measured per product individually.
+        </p>
       </Panel>
 
       <Panel title="Raw materials" eyebrow="What's left in the store room">
@@ -188,7 +194,7 @@ export default function Inventory() {
                     <td className="py-2 pr-4 text-right chip">{s.quantity} {s.kind === "material" ? s.unit : "unit"}</td>
                     <td className="py-2 pr-4 text-ink-400 text-xs">{s.reason || "—"}</td>
                     <td className="py-2 pr-4 text-right chip text-[var(--accent)]">{money(s.valueLost || 0)}</td>
-                    <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm("Remove this spoilage entry? This can't be undone.")) remove("spoilage", s.id); }}>remove</button></td>
+                    <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => { if (await confirmAction("Remove this spoilage entry? This can't be undone.", { danger: true, confirmLabel: "Remove" })) remove("spoilage", s.id); }}>remove</button></td>
                   </tr>
                 );
               })}

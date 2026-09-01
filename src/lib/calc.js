@@ -223,7 +223,7 @@ export function salesWithMargin(data) {
         id: `${order.id}::${item.productId}`,
         orderId: order.id,
         date: order.date,
-        paymentMode: order.paymentMode,
+        paymentMode: summarizePaymentModes(orderPayments(order, null)),
         customer: customerById[order.customerId],
         customerId: order.customerId,
         product: productById[item.productId],
@@ -264,7 +264,7 @@ export function customerAnalytics(data) {
   const balanceByCustomer = {};
   for (const order of data.salesOrders) {
     const total = (order.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-    const paid = order.amountPaid ?? total;
+    const paid = orderPaidTotal(order, total);
     const balance = Math.max(0, total - paid);
     if (balance > 0) balanceByCustomer[order.customerId] = (balanceByCustomer[order.customerId] || 0) + balance;
   }
@@ -342,6 +342,29 @@ export function runsAwaitingCount(data) {
     .sort((a, b) => b.daysSince - a.daysSince);
 }
 
+// An order may have a real `payments` list (one or more entries, each its
+// own amount/mode/date — supports paying part by POS and the rest by
+// transfer, for example) or, for orders created before this existed,
+// just the old single amountPaid/paymentMode pair. This reads either
+// shape and always returns a list, so callers don't need to know which
+// one they're looking at.
+export function orderPayments(order, orderTotal) {
+  if (order.payments && order.payments.length > 0) return order.payments;
+  const amount = order.amountPaid ?? orderTotal;
+  return [{ amount, mode: order.paymentMode || "Cash", date: order.date }];
+}
+
+export function orderPaidTotal(order, orderTotal) {
+  return orderPayments(order, orderTotal).reduce((s, p) => s + (p.amount || 0), 0);
+}
+
+export function summarizePaymentModes(payments) {
+  const modes = [...new Set(payments.map((p) => p.mode).filter(Boolean))];
+  if (modes.length === 0) return "—";
+  if (modes.length === 1) return modes[0];
+  return "Mixed";
+}
+
 export function overviewMetrics(data, range = {}) {
   const { from, to } = range;
   const lines = salesWithMargin(data).filter((s) => inRange(s.date, from, to));
@@ -357,7 +380,7 @@ export function overviewMetrics(data, range = {}) {
   const payables = ledger.reduce((s, r) => s + r.payable, 0);
   const receivables = data.salesOrders.reduce((s, order) => {
     const total = (order.items || []).reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
-    const paid = order.amountPaid ?? total;
+    const paid = orderPaidTotal(order, total);
     return s + Math.max(0, total - paid);
   }, 0);
   const unitsSold = lines.reduce((s, r) => s + r.quantity, 0);

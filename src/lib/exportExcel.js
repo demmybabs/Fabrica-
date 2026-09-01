@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { finishedGoodsInventory, materialLedger, salesWithMargin, productionRunCosts, estimateIngredientAllocation } from "./calc";
+import { finishedGoodsInventory, materialLedger, salesWithMargin, productionRunCosts, estimateIngredientAllocation, orderPaidTotal, orderPayments, summarizePaymentModes } from "./calc";
 
 export function exportAllToExcel(data) {
   const wb = XLSX.utils.book_new();
@@ -104,12 +104,20 @@ export function exportAllToExcel(data) {
   const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
   addSheet(wb, "Sales orders", data.salesOrders.map((o) => {
     const total = (o.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-    const paid = o.amountPaid ?? total;
+    const paid = orderPaidTotal(o, total);
     return {
       Order: o.id, Date: o.date, Customer: customerById[o.customerId]?.name || "",
-      "Payment mode": o.paymentMode, "Order total": total.toFixed(2), "Amount paid": paid.toFixed(2),
+      "Payment mode(s)": summarizePaymentModes(orderPayments(o, total)), "Order total": total.toFixed(2), "Amount paid": paid.toFixed(2),
       Balance: Math.max(0, total - paid).toFixed(2),
     };
+  }));
+
+  addSheet(wb, "Payments", data.salesOrders.flatMap((o) => {
+    const total = (o.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    return orderPayments(o, total).map((p) => ({
+      Order: o.id, Customer: customerById[o.customerId]?.name || "",
+      Date: p.date || o.date, Amount: (p.amount || 0).toFixed(2), Mode: p.mode || "",
+    }));
   }));
 
   addSheet(wb, "Spoilage", (data.spoilage || []).map((s) => ({

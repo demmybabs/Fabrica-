@@ -5,6 +5,7 @@ import { AppProvider } from "./lib/AppContext";
 import ThemeProvider from "./lib/ThemeProvider";
 import Sidebar from "./components/Sidebar";
 import ErrorBanner from "./components/ErrorBanner";
+import { ConfirmProvider } from "./lib/ConfirmContext";
 import Overview from "./pages/Overview";
 import Supply from "./pages/Supply";
 import Products from "./pages/Products";
@@ -44,25 +45,27 @@ function AppShell() {
   return (
     <AppProvider>
       <ThemeProvider>
-        <HashRouter>
-          <ErrorBanner />
-          <div className="flex flex-col md:flex-row min-h-screen bg-ink-950 text-ink-100 font-body">
-            <Sidebar />
-            <main className="flex-1 p-4 md:p-8 max-w-6xl w-full">
-              <Routes>
-                <Route path="/" element={<Overview />} />
-                <Route path="/supply" element={<Supply />} />
-                <Route path="/products" element={<Products />} />
-                <Route path="/production" element={<Production />} />
-                <Route path="/inventory" element={<Inventory />} />
-                <Route path="/sales" element={<Sales />} />
-                <Route path="/customers" element={<Customers />} />
-                <Route path="/customer-portal" element={<CustomerPortal />} />
-                <Route path="/settings" element={<Settings />} />
-              </Routes>
-            </main>
-          </div>
-        </HashRouter>
+        <ConfirmProvider>
+          <HashRouter>
+            <ErrorBanner />
+            <div className="flex flex-col md:flex-row min-h-screen bg-ink-950 text-ink-100 font-body">
+              <Sidebar />
+              <main className="flex-1 p-4 md:p-8 max-w-6xl w-full">
+                <Routes>
+                  <Route path="/" element={<Overview />} />
+                  <Route path="/supply" element={<Supply />} />
+                  <Route path="/products" element={<Products />} />
+                  <Route path="/production" element={<Production />} />
+                  <Route path="/inventory" element={<Inventory />} />
+                  <Route path="/sales" element={<Sales />} />
+                  <Route path="/customers" element={<Customers />} />
+                  <Route path="/customer-portal" element={<CustomerPortal />} />
+                  <Route path="/settings" element={<Settings />} />
+                </Routes>
+              </main>
+            </div>
+          </HashRouter>
+        </ConfirmProvider>
       </ThemeProvider>
     </AppProvider>
   );

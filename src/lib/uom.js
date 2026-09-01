@@ -69,13 +69,25 @@ export function allUnits(custom = {}) {
 // the thousands of grams, litres once a volume does the same. The
 // internal base-unit conversion is still what makes the math correct
 // across mixed units; this only changes what gets displayed.
+function scaleForDisplay(baseAmount, baseUnit) {
+  if (baseUnit === "g" && Math.abs(baseAmount) >= 1000) return { unit: "kg", factor: 1000 };
+  if (baseUnit === "ml" && Math.abs(baseAmount) >= 1000) return { unit: "l", factor: 1000 };
+  return { unit: baseUnit, factor: 1 };
+}
+
 export function formatQuantity(baseAmount, baseUnit, decimals = 1) {
-  const amount = baseAmount || 0;
-  if (baseUnit === "g" && Math.abs(amount) >= 1000) {
-    return `${(amount / 1000).toFixed(decimals)}kg`;
-  }
-  if (baseUnit === "ml" && Math.abs(amount) >= 1000) {
-    return `${(amount / 1000).toFixed(decimals)}l`;
-  }
-  return `${amount.toFixed(decimals)}${baseUnit}`;
+  const { unit, factor } = scaleForDisplay(baseAmount, baseUnit);
+  return `${((baseAmount || 0) / factor).toFixed(decimals)}${unit}`;
+}
+
+// A cost-per-base-unit figure (e.g. cost per gram) is meaningless on its
+// own next to a quantity shown in kg — ₦0.90 reads like ₦0.90/kg when
+// it's actually ₦0.90/g, a 1000x misread. This rescales the cost to
+// match whatever unit formatQuantity chose for the same underlying
+// amount, so the two numbers shown side by side are always consistent
+// with each other. Returns { amount, unit } — the caller applies its own
+// currency formatting to `amount` and appends "/" + unit.
+export function scaledUnitCost(costPerBaseUnit, referenceBaseAmount, baseUnit) {
+  const { unit, factor } = scaleForDisplay(referenceBaseAmount, baseUnit);
+  return { amount: (costPerBaseUnit || 0) * factor, unit };
 }

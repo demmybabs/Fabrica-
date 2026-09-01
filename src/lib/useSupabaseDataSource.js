@@ -103,17 +103,47 @@ export function useSupabaseDataSource() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Fetches just one table's rows (or app_settings) and merges them in —
+  // used for ongoing sync so a change to, say, customers doesn't also
+  // re-download suppliers, products, production runs, and everything
+  // else untouched by that change. fetchAll (above) is still used for
+  // the initial load, where everything is needed anyway.
+  const KEY_BY_TABLE = { suppliers: "suppliers", supply_batches: "supplyBatches", products: "products", production_runs: "productionRuns", customers: "customers", sales_orders: "salesOrders", spoilage: "spoilage" };
+  const fetchTable = useCallback(async (table) => {
+    if (table === "app_settings") {
+      const { data: settingsRow, error } = await supabase.from("app_settings").select("*").eq("id", 1).single();
+      if (error || !settingsRow) return;
+      const settings = toCamel(settingsRow);
+      setData((d) => ({
+        ...d,
+        customUnits: settings.customUnits ?? DEFAULTS.customUnits,
+        segments: settings.segments ?? DEFAULTS.segments,
+        wholesaleSubCategories: settings.wholesaleSubCategories ?? DEFAULTS.wholesaleSubCategories,
+        themes: settings.themes ?? DEFAULTS.themes,
+        branding: settings.branding ?? DEFAULTS.branding,
+        currency: settings.currency ?? DEFAULTS.currency,
+      }));
+      return;
+    }
+    const key = KEY_BY_TABLE[table];
+    if (!key) return;
+    const { data: rows, error } = await supabase.from(table).select("*");
+    if (error) { console.error(`Fabrica: refetch of ${table} failed`, error); return; }
+    setData((d) => ({ ...d, [key]: (rows || []).map(toCamel) }));
+  }, []);
+
   // Any change from any device — including this one, on another tab —
-  // triggers a refetch, which is what actually makes every screen stay
-  // in sync across systems.
+  // triggers a refetch of just that one table, which is what actually
+  // makes every screen stay in sync across systems without re-pulling
+  // data nothing changed.
   useEffect(() => {
     const channel = supabase.channel("fabrica-sync");
     for (const table of [...Object.values(TABLES), "app_settings"]) {
-      channel.on("postgres_changes", { event: "*", schema: "public", table }, () => fetchAll());
+      channel.on("postgres_changes", { event: "*", schema: "public", table }, () => fetchTable(table));
     }
     channel.subscribe();
     return () => supabase.removeChannel(channel);
-  }, [fetchAll]);
+  }, [fetchTable]);
 
   const add = async (key, record) => {
     const table = TABLES[key];

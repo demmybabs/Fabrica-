@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../lib/AppContext";
+import { useConfirm } from "../lib/ConfirmContext";
 import { handleImageUpload } from "../lib/imageResize";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
@@ -8,6 +9,7 @@ const blankProduct = { name: "", flavor: "", packSize: "", imageDataUrl: null };
 
 export default function Products() {
   const { data, add, update, remove } = useApp();
+  const confirmAction = useConfirm();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blankProduct);
   const [ingredientNames, setIngredientNames] = useState([""]);
@@ -112,7 +114,7 @@ export default function Products() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {data.segments.map((seg) => (
                   <Field key={seg} label={`${seg} price (${data.currency?.symbol || "₦"})`}>
-                    <input type="number" step="0.01" className={inputCls} value={prices[seg] || ""} onChange={(e) => setPrices({ ...prices, [seg]: e.target.value })} placeholder="0.00" />
+                    <input type="number" min="0" step="0.01" className={inputCls} value={prices[seg] || ""} onChange={(e) => setPrices({ ...prices, [seg]: e.target.value })} placeholder="0.00" />
                   </Field>
                 ))}
               </div>
@@ -155,14 +157,24 @@ export default function Products() {
                     <span className="chip text-ink-500 ml-2">{product.flavor} · {product.packSize}</span>
                   </div>
                 </div>
-                <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove ${product.name} (${product.packSize})? This can't be undone.`)) remove("products", product.id); }}>remove product</button>
+                <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
+                  const salesCount = data.salesOrders.filter((o) => (o.items || []).some((i) => i.productId === product.id)).length;
+                  const runsCount = data.productionRuns.filter((r) => (r.outputs || []).some((o) => o.productId === product.id)).length;
+                  const parts = [];
+                  if (salesCount > 0) parts.push(`${salesCount} sale${salesCount === 1 ? "" : "s"}`);
+                  if (runsCount > 0) parts.push(`${runsCount} production run${runsCount === 1 ? "" : "s"}`);
+                  const msg = parts.length > 0
+                    ? `Remove ${product.name} (${product.packSize})? It has ${parts.join(" and ")} on file — those records stay, but will no longer show a product name.`
+                    : `Remove ${product.name} (${product.packSize})? This can't be undone.`;
+                  if (await confirmAction(msg, { danger: true, confirmLabel: "Remove" })) remove("products", product.id);
+                }}>remove product</button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                 {data.segments.map((seg) => (
                   <div key={seg}>
                     <span className="chip text-ink-500 uppercase block mb-1">{seg} price ({data.currency?.symbol || "₦"})</span>
-                    <input type="number" step="0.01" className={inputCls} value={product.pricesBySegment?.[seg] ?? ""} onChange={(e) => updatePrice(product, seg, e.target.value)} placeholder="0.00" />
+                    <input type="number" min="0" step="0.01" className={inputCls} value={product.pricesBySegment?.[seg] ?? ""} onChange={(e) => updatePrice(product, seg, e.target.value)} placeholder="0.00" />
                   </div>
                 ))}
               </div>

@@ -1,5 +1,6 @@
 import { useState, Fragment } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
+import { useConfirm } from "../lib/ConfirmContext";
 import { customerAnalytics, performanceByAttribute } from "../lib/calc";
 import Panel from "../components/Panel";
 import StatCard from "../components/StatCard";
@@ -9,6 +10,7 @@ const blank = { name: "", gender: "", profession: "", segment: "", subCategory: 
 
 export default function Customers() {
   const { data, add, update, remove, addSegment, addWholesaleSubCategory } = useApp();
+  const confirmAction = useConfirm();
   const money = useMoney();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ ...blank, segment: data.segments[0] || "" });
@@ -150,7 +152,7 @@ export default function Customers() {
                   {data.products.map((p) => (
                     <Field key={p.id} label={`${p.name} · ${p.packSize}`}>
                       <input
-                        type="number" step="0.01" className={inputCls}
+                        type="number" min="0" step="0.01" className={inputCls}
                         value={customPrices[p.id] || ""}
                         onChange={(e) => setCustomPrices({ ...customPrices, [p.id]: e.target.value })}
                         placeholder={p.pricesBySegment?.Wholesale ? String(p.pricesBySegment.Wholesale) : "0.00"}
@@ -214,7 +216,13 @@ export default function Customers() {
                           {editingPricesFor === row.customer.id ? "close" : "prices"}
                         </button>
                       )}
-                      <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove ${row.customer.name}? This can't be undone.`)) remove("customers", row.customer.id); }}>remove</button>
+                      <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
+                        const orderCount = row.orders;
+                        const msg = orderCount > 0
+                          ? `Remove ${row.customer.name}? They have ${orderCount} order${orderCount === 1 ? "" : "s"} on file — those records stay, but will no longer show a customer name.`
+                          : `Remove ${row.customer.name}? This can't be undone.`;
+                        if (await confirmAction(msg, { danger: true, confirmLabel: "Remove" })) remove("customers", row.customer.id);
+                      }}>remove</button>
                     </td>
                   </tr>
                   {editingPricesFor === row.customer.id && (
@@ -224,7 +232,7 @@ export default function Customers() {
                           {data.products.map((p) => (
                             <Field key={p.id} label={`${p.name} · ${p.packSize}`}>
                               <input
-                                type="number" step="0.01" className={inputCls}
+                                type="number" min="0" step="0.01" className={inputCls}
                                 value={row.customer.customPrices?.[p.id] ?? ""}
                                 onChange={(e) => updateExistingCustomerPrice(row.customer, p.id, e.target.value)}
                                 placeholder={p.pricesBySegment?.Wholesale ? String(p.pricesBySegment.Wholesale) : "0.00"}

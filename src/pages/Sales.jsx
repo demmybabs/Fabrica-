@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
-import { salesWithMargin, finishedGoodsInventory } from "../lib/calc";
+import { useConfirm } from "../lib/ConfirmContext";
+import { salesWithMargin, finishedGoodsInventory, orderPayments, orderPaidTotal } from "../lib/calc";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -10,6 +11,7 @@ const blankItem = { productId: "", quantity: "", unitPrice: "" };
 export default function Sales() {
   const { data, add, update, remove } = useApp();
   const money = useMoney();
+  const confirmAction = useConfirm();
   const [open, setOpen] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [date, setDate] = useState("");
@@ -17,6 +19,7 @@ export default function Sales() {
   const [items, setItems] = useState([{ ...blankItem }]);
   const [amountPaid, setAmountPaid] = useState("");
   const [formError, setFormError] = useState("");
+  const [paymentDrafts, setPaymentDrafts] = useState({});
 
   const lines = salesWithMargin(data);
   const inv = finishedGoodsInventory(data);
@@ -26,9 +29,9 @@ export default function Sales() {
   const orderIds = [...new Set(data.salesOrders.map((o) => o.id))].reverse();
   const orderById = Object.fromEntries(data.salesOrders.map((o) => [o.id, o]));
   const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
+  const productById = Object.fromEntries(data.products.map((p) => [p.id, p]));
 
   const updateItem = (i, patch) => setItems(items.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const productById = Object.fromEntries(data.products.map((p) => [p.id, p]));
   const onProductSelect = (i, productId) => {
     const product = productById[productId];
     const customer = customerById[customerId];
@@ -82,7 +85,7 @@ export default function Sales() {
     return warnings;
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setFormError("");
     const violations = checkStockAvailability();
@@ -92,16 +95,17 @@ export default function Sales() {
     }
     const belowCostWarnings = checkBelowCost();
     if (belowCostWarnings.length > 0) {
-      const proceed = confirm(
-        `${belowCostWarnings.join(" ")} Save this order anyway?`
-      );
+      const proceed = await confirmAction(`${belowCostWarnings.join(" ")} Save this order anyway?`, { confirmLabel: "Save anyway" });
       if (!proceed) return;
     }
+    const paidNow = amountPaid === "" ? orderTotal : parseFloat(amountPaid) || 0;
     add("salesOrders", {
       customerId,
       date: date || new Date().toISOString().slice(0, 10),
-      paymentMode,
-      amountPaid: amountPaid === "" ? orderTotal : parseFloat(amountPaid) || 0,
+      // payments is the real source of truth going forward — a list, not
+      // a single amount/mode, so a balance paid off partly by POS and
+      // partly by transfer later doesn't overwrite this first entry.
+      payments: [{ amount: paidNow, mode: paymentMode, date: date || new Date().toISOString().slice(0, 10) }],
       items: items
         .filter((i) => i.productId && i.quantity)
         .map((i) => ({ productId: i.productId, quantity: parseFloat(i.quantity) || 0, unitPrice: parseFloat(i.unitPrice) || 0 })),
@@ -109,15 +113,13 @@ export default function Sales() {
     setCustomerId(""); setDate(""); setPaymentMode("Cash"); setItems([{ ...blankItem }]); setAmountPaid(""); setFormError(""); setOpen(false);
   };
 
-  const recordPayment = (order, value, mode) => {
-    update("salesOrders", order.id, { amountPaid: parseFloat(value) || 0, paymentMode: mode || order.paymentMode });
-  };
-  const [paymentDrafts, setPaymentDrafts] = useState({});
   const updatePaymentDraft = (orderId, patch) => setPaymentDrafts((d) => ({ ...d, [orderId]: { ...d[orderId], ...patch } }));
-  const savePayment = (order) => {
+  const addPayment = (order, orderTotalForOrder) => {
     const draft = paymentDrafts[order.id];
     if (!draft?.amount) return;
-    recordPayment(order, draft.amount, draft.mode);
+    const existing = orderPayments(order, orderTotalForOrder);
+    const newPayment = { amount: parseFloat(draft.amount) || 0, mode: draft.mode || paymentModes[0], date: new Date().toISOString().slice(0, 10) };
+    update("salesOrders", order.id, { payments: [...existing, newPayment] });
     setPaymentDrafts((d) => { const next = { ...d }; delete next[order.id]; return next; });
   };
 
@@ -159,8 +161,8 @@ export default function Sales() {
                       <option value="">Product…</option>
                       {data.products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.packSize} — {onHandByProduct[p.id] ?? 0} on hand</option>)}
                     </select>
-                    <input type="number" className={`${inputCls} col-span-2`} placeholder="qty" value={row.quantity} onChange={(e) => { updateItem(i, { quantity: e.target.value }); setFormError(""); }} />
-                    <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="unit price" value={row.unitPrice} onChange={(e) => updateItem(i, { unitPrice: e.target.value })} />
+                    <input type="number" min="0" className={`${inputCls} col-span-2`} placeholder="qty" value={row.quantity} onChange={(e) => { updateItem(i, { quantity: e.target.value }); setFormError(""); }} />
+                    <input type="number" min="0" step="0.01" className={`${inputCls} col-span-2`} placeholder="unit price" value={row.unitPrice} onChange={(e) => updateItem(i, { unitPrice: e.target.value })} />
                     <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>remove</button>
                   </div>
                 ))}
@@ -173,7 +175,7 @@ export default function Sales() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Amount paid by customer">
-                <input type="number" step="0.01" className={inputCls} value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={orderTotal ? orderTotal.toFixed(2) : "0.00"} />
+                <input type="number" min="0" step="0.01" className={inputCls} value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} placeholder={orderTotal ? orderTotal.toFixed(2) : "0.00"} />
               </Field>
               <div className="flex items-end">
                 <span className="chip text-ink-400">
@@ -196,14 +198,15 @@ export default function Sales() {
         </Panel>
       )}
 
-      <Panel title="Orders" eyebrow="Cost per line uses each product's current weighted-average from production">
+      <Panel title="Orders" eyebrow="Cost per line uses each product's current weighted-average from production (est.)">
         <div className="space-y-3">
           {orderIds.map((orderId) => {
             const order = orderById[orderId];
             const orderLines = lines.filter((l) => l.orderId === orderId);
             const total = orderLines.reduce((s, l) => s + l.revenue, 0);
             const margin = orderLines.reduce((s, l) => s + l.margin, 0);
-            const paid = order.amountPaid ?? total;
+            const payments = orderPayments(order, total);
+            const paid = orderPaidTotal(order, total);
             const orderBalance = Math.max(0, total - paid);
             return (
               <div key={orderId} className="border border-ink-700 rounded-lg p-4">
@@ -211,7 +214,6 @@ export default function Sales() {
                   <div className="flex items-center gap-3">
                     <span className="chip text-ink-500">{order.date}</span>
                     <span className="text-sm text-ink-100">{customerById[order.customerId]?.name || "—"}</span>
-                    <span className="chip text-ink-500">{order.paymentMode}</span>
                   </div>
                   <div className="flex items-center gap-4 flex-wrap">
                     <span className="chip text-ink-300">revenue {money(total)}</span>
@@ -221,53 +223,66 @@ export default function Sales() {
                     ) : (
                       <span className="chip text-ink-500">fully paid</span>
                     )}
-                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm("Remove this order? This can't be undone.")) remove("salesOrders", orderId); }}>remove order</button>
+                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
+                      if (await confirmAction("Remove this order? This can't be undone.", { danger: true, confirmLabel: "Remove" })) remove("salesOrders", orderId);
+                    }}>remove order</button>
                   </div>
                 </div>
+
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <span className="chip text-ink-500">Payments:</span>
+                  {payments.map((p, idx) => (
+                    <span key={idx} className="chip bg-ink-900 border border-ink-700 rounded px-2 py-0.5 text-ink-300">
+                      {money(p.amount)} · {p.mode}{p.date ? ` · ${p.date}` : ""}
+                    </span>
+                  ))}
+                </div>
+
                 {orderBalance > 0.004 && (
                   <div className="flex items-center gap-2 mb-3 flex-wrap">
-                    <span className="chip text-ink-500">Record payment received:</span>
+                    <span className="chip text-ink-500">Add a payment:</span>
                     <input
-                      type="number" step="0.01"
+                      type="number" min="0" step="0.01"
                       className={`${inputCls} w-28`}
-                      placeholder={paid.toFixed(2)}
+                      placeholder="amount"
                       value={paymentDrafts[orderId]?.amount ?? ""}
                       onChange={(e) => updatePaymentDraft(orderId, { amount: e.target.value })}
                     />
                     <select
                       className={`${inputCls} w-28`}
-                      value={paymentDrafts[orderId]?.mode ?? order.paymentMode}
+                      value={paymentDrafts[orderId]?.mode ?? paymentModes[0]}
                       onChange={(e) => updatePaymentDraft(orderId, { mode: e.target.value })}
                     >
                       {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
                     </select>
-                    <button type="button" className="chip text-[var(--accent)]" onClick={() => savePayment(order)}>save</button>
+                    <button type="button" className="chip text-[var(--accent)]" onClick={() => addPayment(order, total)}>save</button>
                   </div>
                 )}
+
                 <div className="overflow-x-auto">
-<table className="w-full text-sm" style={{minWidth: "600px"}}>
-                  <thead>
-                    <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
-                      <th className="py-1.5 pr-4">Product</th>
-                      <th className="py-1.5 pr-4 text-right">Qty</th>
-                      <th className="py-1.5 pr-4 text-right">Price</th>
-                      <th className="py-1.5 pr-4 text-right">Cost</th>
-                      <th className="py-1.5 pr-4 text-right">Margin</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orderLines.map((l) => (
-                      <tr key={l.id} className="text-ink-200">
-                        <td className="py-1.5 pr-4">{l.product ? `${l.product.name} · ${l.product.packSize}` : "—"}</td>
-                        <td className="py-1.5 pr-4 text-right chip">{l.quantity}</td>
-                        <td className="py-1.5 pr-4 text-right chip">{money(l.unitPrice)}</td>
-                        <td className="py-1.5 pr-4 text-right chip text-ink-400">{money(l.costPerUnit)}</td>
-                        <td className="py-1.5 pr-4 text-right chip text-moss-400">{money(l.margin)} <span className="text-ink-500">({l.marginPct.toFixed(0)}%)</span></td>
+                  <table className="w-full text-sm" style={{ minWidth: "600px" }}>
+                    <thead>
+                      <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
+                        <th className="py-1.5 pr-4">Product</th>
+                        <th className="py-1.5 pr-4 text-right">Qty</th>
+                        <th className="py-1.5 pr-4 text-right">Price</th>
+                        <th className="py-1.5 pr-4 text-right">Cost (est.)</th>
+                        <th className="py-1.5 pr-4 text-right">Margin</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-</div>
+                    </thead>
+                    <tbody>
+                      {orderLines.map((l) => (
+                        <tr key={l.id} className="text-ink-200">
+                          <td className="py-1.5 pr-4">{l.product ? `${l.product.name} · ${l.product.packSize}` : "—"}</td>
+                          <td className="py-1.5 pr-4 text-right chip">{l.quantity}</td>
+                          <td className="py-1.5 pr-4 text-right chip">{money(l.unitPrice)}</td>
+                          <td className="py-1.5 pr-4 text-right chip text-ink-400">{money(l.costPerUnit)}</td>
+                          <td className="py-1.5 pr-4 text-right chip text-moss-400">{money(l.margin)} <span className="text-ink-500">({l.marginPct.toFixed(0)}%)</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             );
           })}

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
+import { useConfirm } from "../lib/ConfirmContext";
 import { materialLedger } from "../lib/calc";
-import { allUnits, formatQuantity } from "../lib/uom";
+import { allUnits, formatQuantity, scaledUnitCost } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -11,6 +12,7 @@ const blankDelivery = { supplierId: "", itemName: "", quantity: "", unit: "kg", 
 export default function Supply() {
   const { data, add, remove } = useApp();
   const money = useMoney();
+  const confirmAction = useConfirm();
   const [openSupplier, setOpenSupplier] = useState(false);
   const [openDelivery, setOpenDelivery] = useState(false);
   const [supplierForm, setSupplierForm] = useState(blankSupplier);
@@ -88,7 +90,7 @@ export default function Supply() {
               <input className={inputCls} value={form.itemName} onChange={(e) => setForm({ ...form, itemName: e.target.value })} placeholder="e.g. Rolled oats" required />
             </Field>
             <Field label="Quantity">
-              <input type="number" step="0.01" className={inputCls} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
+              <input type="number" min="0" step="0.01" className={inputCls} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required />
             </Field>
             <Field label="Unit">
               <select className={inputCls} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
@@ -96,13 +98,13 @@ export default function Supply() {
               </select>
             </Field>
             <Field label="Total amount paid for this delivery">
-              <input type="number" step="0.01" className={inputCls} value={form.totalCost} onChange={(e) => setForm({ ...form, totalCost: e.target.value })} required />
+              <input type="number" min="0" step="0.01" className={inputCls} value={form.totalCost} onChange={(e) => setForm({ ...form, totalCost: e.target.value })} required />
               {form.quantity && form.totalCost ? (
                 <span className="chip text-ink-500 mt-1 block">≈ {money((parseFloat(form.totalCost) || 0) / (parseFloat(form.quantity) || 1))} per {form.unit}</span>
               ) : null}
             </Field>
             <Field label="Amount paid so far">
-              <input type="number" step="0.01" className={inputCls} value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: e.target.value })} />
+              <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: e.target.value })} />
             </Field>
             <Field label="Date received">
               <input type="date" className={inputCls} value={form.dateReceived} onChange={(e) => setForm({ ...form, dateReceived: e.target.value })} />
@@ -139,7 +141,12 @@ export default function Supply() {
                   <td className="py-2 pr-4 text-right chip">{formatQuantity(r.suppliedBase, r.baseUnit)}</td>
                   <td className="py-2 pr-4 text-right chip">{formatQuantity(r.consumedBase, r.baseUnit)}</td>
                   <td className="py-2 pr-4 text-right chip text-brass-400">{formatQuantity(r.remainingBase, r.baseUnit)}</td>
-                  <td className="py-2 pr-4 text-right chip">{money(r.avgUnitCostBase)}</td>
+                  <td className="py-2 pr-4 text-right chip">
+                    {(() => {
+                      const c = scaledUnitCost(r.avgUnitCostBase, r.remainingBase, r.baseUnit);
+                      return `${money(c.amount)}/${c.unit}`;
+                    })()}
+                  </td>
                   <td className="py-2 pr-4 text-right chip">{money(r.valueRemaining)}</td>
                   <td className="py-2 pr-4 text-right chip text-[var(--accent)]">{r.payable > 0 ? money(r.payable) : "—"}</td>
                 </tr>
@@ -167,7 +174,13 @@ export default function Supply() {
                   <td className="py-2 pr-4">{s.name}</td>
                   <td className="py-2 pr-4 text-ink-400">{s.contact || "—"}</td>
                   <td className="py-2 pr-4 text-right chip">{batchCountBySupplier[s.id] || 0}</td>
-                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove supplier "${s.name}"? This can't be undone.`)) remove("suppliers", s.id); }}>remove</button></td>
+                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
+                    const count = batchCountBySupplier[s.id] || 0;
+                    const msg = count > 0
+                      ? `Remove "${s.name}"? They have ${count} deliver${count === 1 ? "y" : "ies"} on file — those records stay, but will no longer show a supplier name.`
+                      : `Remove supplier "${s.name}"? This can't be undone.`;
+                    if (await confirmAction(msg, { danger: true, confirmLabel: "Remove" })) remove("suppliers", s.id);
+                  }}>remove</button></td>
                 </tr>
               ))}
               {data.suppliers.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-ink-500">No suppliers yet — onboard your first one above.</td></tr>}
@@ -199,7 +212,9 @@ export default function Supply() {
                   <td className="py-2 pr-4 text-right chip">{b.quantity} {b.unit}</td>
                   <td className="py-2 pr-4 text-right chip">{money(b.totalCost)}</td>
                   <td className="py-2 pr-4 text-right chip">{money(b.amountPaid)}</td>
-                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove this delivery of ${b.itemName}? This can't be undone.`)) remove("supplyBatches", b.id); }}>remove</button></td>
+                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
+                    if (await confirmAction(`Remove this delivery of ${b.itemName}? This can't be undone.`, { danger: true, confirmLabel: "Remove" })) remove("supplyBatches", b.id);
+                  }}>remove</button></td>
                 </tr>
               ))}
             </tbody>

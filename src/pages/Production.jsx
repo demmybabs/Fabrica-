@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
+import { useConfirm } from "../lib/ConfirmContext";
 import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation } from "../lib/calc";
 import { allUnits, toBase, formatQuantity } from "../lib/uom";
 import Panel from "../components/Panel";
@@ -10,7 +11,8 @@ const blankOutput = { productId: "" };
 const overheadPresets = ["Electricity", "Water", "Fuel / gas", "Maintenance", "Packaging", "Other"];
 
 export default function Production() {
-  const { data, add, update, remove, addIngredientToRecipe } = useApp();
+  const { data, add, update, remove } = useApp();
+  const confirmAction = useConfirm();
   const money = useMoney();
   const [open, setOpen] = useState(false);
   const [batchCode, setBatchCode] = useState("");
@@ -47,19 +49,6 @@ export default function Production() {
     const next = outputs.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
     setOutputs(next);
     applyRecipeSuggestion(next);
-  };
-
-  const recipeItemNames = (o) => new Set((productById[o.productId]?.ingredients || []).map((ing) => ing.itemName));
-  const inputIsOffRecipe = (input) => {
-    const usedProducts = outputs.filter((o) => o.productId);
-    if (usedProducts.length === 0) return false;
-    return !usedProducts.some((o) => recipeItemNames(o).has(input.itemName));
-  };
-
-  const saveInputToRecipe = (input) => {
-    const target = outputs.find((o) => o.productId);
-    if (!target) return;
-    addIngredientToRecipe(target.productId, input.itemName);
   };
 
   const addOutputToRun = (run) => {
@@ -140,7 +129,7 @@ export default function Production() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <Field label="Batch code"><input className={inputCls} value={batchCode} onChange={(e) => setBatchCode(e.target.value)} placeholder="auto if blank" /></Field>
               <Field label="Date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-              <Field label="Labor cost"><input type="number" step="0.01" className={inputCls} value={laborCost} onChange={(e) => setLaborCost(e.target.value)} /></Field>
+              <Field label="Labor cost"><input type="number" min="0" step="0.01" className={inputCls} value={laborCost} onChange={(e) => setLaborCost(e.target.value)} /></Field>
             </div>
 
             <div>
@@ -177,19 +166,14 @@ export default function Production() {
                         </option>
                       ))}
                     </select>
-                    <input type="number" step="0.01" className={`${inputCls} col-span-2`} placeholder="qty used" value={row.quantity} onChange={(e) => { updateRow(inputs, setInputs, i, { quantity: e.target.value }); setInputsTouched(true); setFormError(""); }} />
+                    <input type="number" min="0" step="0.01" className={`${inputCls} col-span-2`} placeholder="qty used" value={row.quantity} onChange={(e) => { updateRow(inputs, setInputs, i, { quantity: e.target.value }); setInputsTouched(true); setFormError(""); }} />
                     <select className={`${inputCls} col-span-2`} value={row.unit} onChange={(e) => { updateRow(inputs, setInputs, i, { unit: e.target.value }); setInputsTouched(true); setFormError(""); }}>
                       {units.map((u) => <option key={u.unit} value={u.unit}>{u.unit}</option>)}
                     </select>
-                    {row.itemName && inputIsOffRecipe(row) ? (
-                      <button type="button" className="chip text-[var(--accent)] text-[10px]" onClick={() => saveInputToRecipe(row)}>save to recipe</button>
-                    ) : (
-                      <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { setInputs(inputs.filter((_, idx) => idx !== i)); setInputsTouched(true); }}>remove</button>
-                    )}
+                    <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { setInputs(inputs.filter((_, idx) => idx !== i)); setInputsTouched(true); }}>remove</button>
                   </div>
                 ))}
               </div>
-              <button type="button" className={`${btnGhostCls} mt-2`} onClick={() => { setInputs([...inputs, { ...blankInput }]); setInputsTouched(true); }}>+ add material manually</button>
             </div>
 
             <div>
@@ -200,7 +184,7 @@ export default function Production() {
                     <select className={`${inputCls} col-span-4`} value={row.category} onChange={(e) => updateRow(overheads, setOverheads, i, { category: e.target.value })}>
                       {overheadPresets.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
-                    <input type="number" step="0.01" className={`${inputCls} col-span-3`} placeholder="cost" value={row.cost} onChange={(e) => updateRow(overheads, setOverheads, i, { cost: e.target.value })} />
+                    <input type="number" min="0" step="0.01" className={`${inputCls} col-span-3`} placeholder="cost" value={row.cost} onChange={(e) => updateRow(overheads, setOverheads, i, { cost: e.target.value })} />
                     <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => setOverheads(overheads.filter((_, idx) => idx !== i))}>remove</button>
                   </div>
                 ))}
@@ -245,7 +229,7 @@ export default function Production() {
                   <div className="flex items-center gap-4">
                     <span className="chip text-ink-400">materials {money(materialCost)} · labor {money(run.laborCost)} · overhead {money(overheadTotal)}</span>
                     <span className="chip text-[var(--accent)]">total {money(totalRunCost)}</span>
-                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => { if (confirm(`Remove production run ${run.batchCode}? This can't be undone.`)) remove("productionRuns", run.id); }}>remove</button>
+                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => { if (await confirmAction(`Remove production run ${run.batchCode}? This can't be undone.`, { danger: true, confirmLabel: "Remove" })) remove("productionRuns", run.id); }}>remove</button>
                   </div>
                 </div>
                 {run.overheadCosts?.length > 0 && (
@@ -260,7 +244,7 @@ export default function Production() {
                         <th className="py-1.5 pr-4">Product</th>
                         <th className="py-1.5 pr-4 text-right">Physical count</th>
                         <th className="py-1.5 pr-4 text-right">Cost allocated</th>
-                        <th className="py-1.5 pr-4 text-right">Cost / unit</th>
+                        <th className="py-1.5 pr-4 text-right">Cost / unit <span className="text-ink-600 normal-case">(est.)</span></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -345,6 +329,7 @@ export default function Production() {
 }
 
 function PhysicalCountCell({ output, isLegacy, onSave }) {
+  const confirmAction = useConfirm();
   const [draft, setDraft] = useState("");
 
   if (output.countedQuantity !== undefined) {
@@ -356,7 +341,7 @@ function PhysicalCountCell({ output, isLegacy, onSave }) {
   return (
     <div className="flex items-center justify-end gap-2">
       <input
-        type="number" placeholder="count"
+        type="number" min="0" placeholder="count"
         className="chip w-20 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-right text-ink-100 focus:outline-none focus:border-[var(--accent)]"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -364,9 +349,9 @@ function PhysicalCountCell({ output, isLegacy, onSave }) {
       <button
         type="button"
         className="chip text-[var(--accent)]"
-        onClick={() => {
+        onClick={async () => {
           if (draft === "") return;
-          if (confirm(`Save ${draft} as the physical count? This can't be changed once saved.`)) onSave(draft);
+          if (await confirmAction(`Save ${draft} as the physical count? This can't be changed once saved.`, { danger: true, confirmLabel: "Save & lock" })) onSave(draft);
         }}
       >
         save

@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useApp } from "../lib/AppContext";
+import { useConfirm } from "../lib/ConfirmContext";
 import { supabaseEnabled } from "../lib/supabaseClient";
 import { handleImageUpload } from "../lib/imageResize";
 import { DEFAULT_UNITS } from "../lib/uom";
@@ -12,6 +13,7 @@ const blank = { category: "weight", unit: "", baseFactor: "" };
 
 export default function Settings() {
   const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency } = useApp();
+  const confirmAction = useConfirm();
   const [form, setForm] = useState(blank);
   const [themeRole, setThemeRole] = useState(data.activeRole);
   const [logoError, setLogoError] = useState("");
@@ -21,8 +23,13 @@ export default function Settings() {
   const branding = data.branding || {};
   const currency = data.currency || { code: "NGN", symbol: "₦" };
 
-  const addUnit = (e) => {
+  const addUnit = async (e) => {
     e.preventDefault();
+    const proceed = await confirmAction(
+      "Adding or changing a unit conversion changes how every historical record using it is interpreted, immediately — not just new entries. Continue?",
+      { confirmLabel: "Continue" }
+    );
+    if (!proceed) return;
     const cat = form.category;
     const base = cat === "weight" ? "g" : cat === "volume" ? "ml" : "unit";
     const next = { ...data.customUnits };
@@ -155,9 +162,14 @@ export default function Settings() {
             <select
               className={inputCls}
               value={CURRENCIES.some((c) => c.code === currency.code) ? currency.code : "custom"}
-              onChange={(e) => {
+              onChange={async (e) => {
                 const preset = CURRENCIES.find((c) => c.code === e.target.value);
-                if (preset) setCurrency(preset);
+                if (!preset) return;
+                const proceed = await confirmAction(
+                  "Changing the currency changes how every historical figure is interpreted, immediately — not just new entries. Continue?",
+                  { confirmLabel: "Continue" }
+                );
+                if (proceed) setCurrency(preset);
               }}
             >
               {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.symbol}</option>)}
@@ -165,7 +177,22 @@ export default function Settings() {
             </select>
           </Field>
           <Field label="Symbol shown">
-            <input className={inputCls} value={currency.symbol} onChange={(e) => setCurrency({ ...currency, symbol: e.target.value })} placeholder="₦" />
+            <input
+              className={inputCls}
+              defaultValue={currency.symbol}
+              key={currency.symbol}
+              onBlur={async (e) => {
+                const nextSymbol = e.target.value;
+                if (nextSymbol === currency.symbol) return;
+                const proceed = await confirmAction(
+                  "Changing the currency symbol changes how every historical figure is interpreted, immediately — not just new entries. Continue?",
+                  { confirmLabel: "Continue" }
+                );
+                if (proceed) setCurrency({ ...currency, symbol: nextSymbol });
+                else e.target.value = currency.symbol;
+              }}
+              placeholder="₦"
+            />
           </Field>
         </div>
       </Panel>
@@ -215,7 +242,7 @@ export default function Settings() {
             </select>
           </Field>
           <Field label="New unit name"><input className={inputCls} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="e.g. sack" required /></Field>
-          <Field label="Equals how many base units"><input type="number" step="0.0001" className={inputCls} value={form.baseFactor} onChange={(e) => setForm({ ...form, baseFactor: e.target.value })} placeholder="e.g. 50000 (a 50kg sack, in g)" required /></Field>
+          <Field label="Equals how many base units"><input type="number" min="0" step="0.0001" className={inputCls} value={form.baseFactor} onChange={(e) => setForm({ ...form, baseFactor: e.target.value })} placeholder="e.g. 50000 (a 50kg sack, in g)" required /></Field>
           <div className="flex items-end"><button type="submit" className={btnCls}>Add unit</button></div>
         </form>
       </Panel>
@@ -233,15 +260,15 @@ export default function Settings() {
             Download all data (Excel)
           </button>
           {!supabaseEnabled && (
-            <button className={btnGhostCls} onClick={() => { if (confirm("Reset all data back to the example dataset? This can't be undone.")) resetToSeed(); }}>Reset to example data</button>
+            <button className={btnGhostCls} onClick={async () => { if (await confirmAction("Reset all data back to the example dataset? This can't be undone.", { danger: true, confirmLabel: "Reset" })) resetToSeed(); }}>Reset to example data</button>
           )}
           <button
             className="chip px-3 py-1.5 rounded border border-red-400 text-red-400 hover:bg-red-400/10"
-            onClick={() => {
+            onClick={async () => {
               const warning = supabaseEnabled
                 ? "Clear ALL data — for EVERYONE, on every device, since this is a shared database? This can't be undone."
                 : "Clear ALL data — suppliers, products, production, sales, customers, everything? This can't be undone.";
-              if (confirm(warning)) clearAllData();
+              if (await confirmAction(warning, { danger: true, confirmLabel: "Clear everything", requireTyped: "DELETE" })) clearAllData();
             }}
           >
             Clear all data
