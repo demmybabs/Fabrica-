@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { finishedGoodsInventory, materialLedger, salesWithMargin, productionRunCosts, estimateIngredientAllocation, orderPaidTotal, orderPayments, summarizePaymentModes } from "./calc";
+import { finishedGoodsInventory, materialLedger, salesWithMargin, productionRunCosts, estimateIngredientAllocation, orderPaidTotal, orderPayments, summarizePaymentModes, productionLosses, givingSummary } from "./calc";
 
 export function exportAllToExcel(data) {
   const wb = XLSX.utils.book_new();
@@ -13,7 +13,7 @@ export function exportAllToExcel(data) {
   addSheet(wb, "Supply deliveries", data.supplyBatches.map((b) => ({
     Date: b.dateReceived, Supplier: supplierById[b.supplierId] || "", Item: b.itemName,
     Quantity: b.quantity, Unit: b.unit, "Unit cost": b.unitCost, "Total cost": b.totalCost,
-    "Amount paid": b.amountPaid, Notes: b.notes,
+    "Amount paid": b.amountPaid, "Expiry date": b.expiryDate || "", Notes: b.notes,
   })));
 
   addSheet(wb, "Products", data.products.map((p) => ({
@@ -54,8 +54,16 @@ export function exportAllToExcel(data) {
       Product: productById[o.productId] ? `${productById[o.productId].name} (${productById[o.productId].packSize})` : o.productId,
       "Physical count": o.countedQuantity ?? (o.quantity !== undefined ? o.quantity : "pending"),
       Source: o.countedQuantity !== undefined ? "counted" : (o.quantity !== undefined ? "logged (legacy)" : "pending count"),
+      "Lost in production": o.lossQuantity || 0,
     }))
   ));
+
+  const lossRows = productionLosses(data);
+  addSheet(wb, "Production losses", lossRows.map((r) => ({
+    "Batch code": r.batchCode, Date: r.date,
+    Product: r.product ? `${r.product.name} (${r.product.packSize})` : r.productId,
+    "Units lost": r.lossQuantity, "Value lost": r.lossValue.toFixed(2),
+  })));
 
   addSheet(wb, "Production overheads", data.productionRuns.flatMap((run) =>
     (run.overheadCosts || []).map((o) => ({ "Batch code": run.batchCode, Date: run.date, Category: o.category, Cost: o.cost }))
@@ -81,7 +89,7 @@ export function exportAllToExcel(data) {
 
   addSheet(wb, "Customers", data.customers.map((c) => ({
     ID: c.id, Name: c.name, Segment: c.segment, "Wholesale category": c.subCategory || "",
-    Gender: c.gender || "", Profession: c.profession || "",
+    Branch: c.branch || "", Gender: c.gender || "", Profession: c.profession || "",
     State: c.state || "", City: c.city || "", Email: c.email || "", Phone: c.phone || "",
     "Created at": c.createdAt,
   })));
@@ -99,21 +107,33 @@ export function exportAllToExcel(data) {
     Product: s.product ? `${s.product.name} (${s.product.packSize})` : "",
     Quantity: s.quantity, "Unit price": s.unitPrice, "Cost / unit": s.costPerUnit.toFixed(2),
     Revenue: s.revenue.toFixed(2), Margin: s.margin.toFixed(2), "Payment mode": s.paymentMode,
+    Giveaway: s.isGiveaway ? "yes" : "",
   })));
 
   const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
   addSheet(wb, "Sales orders", data.salesOrders.map((o) => {
-    const total = (o.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    const revenue = (o.items || []).reduce((s, i) => s + (i.isGiveaway ? 0 : i.quantity * i.unitPrice), 0);
+    const total = revenue + (o.vatAmount || 0);
     const paid = orderPaidTotal(o, total);
     return {
-      Order: o.id, Date: o.date, Customer: customerById[o.customerId]?.name || "",
-      "Payment mode(s)": summarizePaymentModes(orderPayments(o, total)), "Order total": total.toFixed(2), "Amount paid": paid.toFixed(2),
+      Order: o.id, "Invoice number": o.invoiceNumber || "", Date: o.date, Customer: customerById[o.customerId]?.name || "",
+      "Payment mode(s)": summarizePaymentModes(orderPayments(o, total)),
+      "VAT rate (%)": o.vatRate || 0, "VAT amount": (o.vatAmount || 0).toFixed(2),
+      "Order total": total.toFixed(2), "Amount paid": paid.toFixed(2),
       Balance: Math.max(0, total - paid).toFixed(2),
     };
   }));
 
+  const giving = givingSummary(data);
+  addSheet(wb, "Giveaways (ad / charity)", giving.lines.map((l) => ({
+    Date: l.date, Order: l.orderId, Customer: l.customer?.name || "",
+    Product: l.product ? `${l.product.name} (${l.product.packSize})` : "",
+    Quantity: l.quantity, "Cost value given away": l.cogs.toFixed(2),
+  })));
+
   addSheet(wb, "Payments", data.salesOrders.flatMap((o) => {
-    const total = (o.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    const revenue = (o.items || []).reduce((s, i) => s + (i.isGiveaway ? 0 : i.quantity * i.unitPrice), 0);
+    const total = revenue + (o.vatAmount || 0);
     return orderPayments(o, total).map((p) => ({
       Order: o.id, Customer: customerById[o.customerId]?.name || "",
       Date: p.date || o.date, Amount: (p.amount || 0).toFixed(2), Mode: p.mode || "",

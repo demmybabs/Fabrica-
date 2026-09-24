@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
 import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation } from "../lib/calc";
@@ -66,6 +67,19 @@ export default function Production() {
     update("productionRuns", run.id, { outputs: nextOutputs });
   };
 
+  // Production loss — units lost during the process itself (burnt,
+  // dropped, defective, trimmed) rather than good units that later spoil
+  // in storage (that's tracked separately, in Inventory). These never
+  // count toward what's on hand, but they did consume their share of
+  // materials/labor/overhead, so their value is calculated the same way
+  // a good unit's would be. Editable independently of the physical count
+  // lock, since a loss can be discovered before or after counting.
+  const setLossQuantity = (run, index, value) => {
+    if (value === "" || value === null) return;
+    const nextOutputs = run.outputs.map((o, i) => (i === index ? { ...o, lossQuantity: parseFloat(value) || 0 } : o));
+    update("productionRuns", run.id, { outputs: nextOutputs });
+  };
+
   const checkStockAvailability = () => {
     // Sum requested quantity per material (in its base unit), in case the
     // same material appears on more than one row, then compare each
@@ -120,7 +134,10 @@ export default function Production() {
           <h1 className="font-display text-xl font-semibold text-ink-50">Production</h1>
           <p className="text-sm text-ink-400 mt-1 max-w-lg">Log a batch: pick what you're making, materials auto-fill from the recipe, cost is split across every product it yields.</p>
         </div>
-        <button className={btnCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Log a run"}</button>
+        <div className="flex gap-2 flex-wrap">
+          <Link to="/production/dashboard" className={btnGhostCls}>View dashboard →</Link>
+          <button className={btnCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Log a run"}</button>
+        </div>
       </div>
 
       {open && (
@@ -226,9 +243,14 @@ export default function Production() {
                     <span className="chip bg-ink-900 border border-ink-700 rounded px-2 py-0.5 text-brass-400">{run.batchCode}</span>
                     <span className="chip text-ink-500">{run.date}</span>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 flex-wrap">
                     <span className="chip text-ink-400">materials {money(materialCost)} · labor {money(run.laborCost)} · overhead {money(overheadTotal)}</span>
                     <span className="chip text-[var(--accent)]">total {money(totalRunCost)}</span>
+                    {outs.some((o) => o.lossQuantity > 0) && (
+                      <span className="chip text-red-400">
+                        lost {outs.reduce((s, o) => s + (o.lossQuantity || 0), 0)} units · {money(outs.reduce((s, o) => s + (o.lossValue || 0), 0))}
+                      </span>
+                    )}
                     <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => { if (await confirmAction(`Remove production run ${run.batchCode}? This can't be undone.`, { danger: true, confirmLabel: "Remove" })) remove("productionRuns", run.id); }}>remove</button>
                   </div>
                 </div>
@@ -243,6 +265,7 @@ export default function Production() {
                       <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                         <th className="py-1.5 pr-4">Product</th>
                         <th className="py-1.5 pr-4 text-right">Physical count</th>
+                        <th className="py-1.5 pr-4 text-right">Lost in production</th>
                         <th className="py-1.5 pr-4 text-right">Cost allocated</th>
                         <th className="py-1.5 pr-4 text-right">Cost / unit <span className="text-ink-600 normal-case">(est.)</span></th>
                       </tr>
@@ -259,6 +282,16 @@ export default function Production() {
                                 isLegacy={isLegacy}
                                 onSave={(value) => setCountedQuantity(run, idx, value)}
                               />
+                            </td>
+                            <td className="py-1.5 pr-4 text-right">
+                              {isLegacy ? (
+                                <span className="chip text-ink-600">n/a (legacy run)</span>
+                              ) : (
+                                <LossCell
+                                  output={run.outputs[idx]}
+                                  onSave={(value) => setLossQuantity(run, idx, value)}
+                                />
+                              )}
                             </td>
                             <td className="py-1.5 pr-4 text-right chip">{o.isCounted || isLegacy ? money(o.costAllocated) : "—"}</td>
                             <td className="py-1.5 pr-4 text-right chip text-brass-400">{o.isCounted || isLegacy ? money(o.costPerUnit) : "—"}</td>
@@ -355,6 +388,31 @@ function PhysicalCountCell({ output, isLegacy, onSave }) {
         }}
       >
         save
+      </button>
+    </div>
+  );
+}
+
+// Lost-in-production quantity — unlike the physical count, this is never
+// locked: a loss can be discovered, corrected, or added to at any point,
+// so it stays a plain editable field once a value's been saved.
+function LossCell({ output, onSave }) {
+  const [draft, setDraft] = useState(output.lossQuantity !== undefined ? String(output.lossQuantity) : "");
+  const saved = output.lossQuantity !== undefined;
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <input
+        type="number" min="0" placeholder="0"
+        className="chip w-16 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-right text-ink-100 focus:outline-none focus:border-[var(--accent)]"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <button
+        type="button"
+        className="chip text-ink-500 hover:text-[var(--accent)]"
+        onClick={() => { if (draft !== "") onSave(draft); }}
+      >
+        {saved ? "update" : "save"}
       </button>
     </div>
   );

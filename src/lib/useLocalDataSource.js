@@ -54,10 +54,11 @@ export function useLocalDataSource() {
   const clearAllData = () => setData(buildEmpty());
   const setCurrency = (currency) => setData((d) => ({ ...d, currency }));
   const setBranding = (patch) => setData((d) => ({ ...d, branding: { ...d.branding, ...patch } }));
+  const setVatRate = (rate) => setData((d) => ({ ...d, vatRate: rate }));
 
   return {
     data, loaded: true, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
     addIngredientToRecipe, addSegment, addWholesaleSubCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding, writeError: null, clearWriteError: () => {},
+    setCurrency, setBranding, setVatRate, writeError: null, clearWriteError: () => {},
   };
 }

@@ -6,6 +6,18 @@ import DateRangeFilter from "../components/DateRangeFilter";
 import Panel from "../components/Panel";
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 
+// Compact axis labels (₦1.2M instead of 1200000) — full precision with
+// commas and the currency symbol still shows in the tooltip on hover.
+function compactAxisFormatter(symbol) {
+  return (value) => {
+    const n = Number(value) || 0;
+    const abs = Math.abs(n);
+    if (abs >= 1_000_000) return `${symbol}${(n / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${symbol}${(n / 1_000).toFixed(1)}K`;
+    return `${symbol}${n.toLocaleString()}`;
+  };
+}
+
 const chartColors = { revenue: "#D97A3E", grossProfit: "#4F8862", marginPct: "#C9A227", segment: "#4F8862" };
 
 const periods = [
@@ -29,6 +41,8 @@ export default function Overview() {
 
   const rawValue = ledger.reduce((s, r) => s + r.valueRemaining, 0);
   const finishedValue = inv.reduce((s, r) => s + r.valueOnHand, 0);
+  const currencySymbol = data.currency?.symbol || "₦";
+  const axisMoney = compactAxisFormatter(currencySymbol);
 
   const stages = [
     { label: "Supply", value: money(ledger.reduce((s, r) => s + r.costSupplied, 0)), sub: "total received", tone: "rust" },
@@ -93,12 +107,16 @@ export default function Overview() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Revenue in range" value={money(m.totalRevenue)} tone="moss" />
+        <StatCard label="Units sold" value={m.unitsSold.toLocaleString()} sub={`${m.orderCount} orders, in range`} tone="moss" />
         <StatCard label="Cost of goods sold" value={money(m.totalCogs)} tone="rust" />
         <StatCard label="Gross profit" value={money(m.grossProfit)} sub={`${m.grossMarginPct.toFixed(1)}% margin`} tone="brass" />
         <StatCard label="Inventory value" value={money(m.inventoryValue)} sub="raw + finished, current" />
         <StatCard label="Payables to suppliers" value={money(m.payables)} tone="rust" />
-        <StatCard label="Receivables from customers" value={money(m.receivables)} tone="rust" />
-        <StatCard label="Units sold" value={m.unitsSold} sub={`${m.orderCount} orders`} />
+        <StatCard label="Receivables from customers" value={money(m.receivables)} sub={m.onCredit > 0 ? `${money(m.onCredit)} explicitly on credit` : undefined} tone="rust" />
+        <StatCard label="VAT collected in range" value={money(m.vatCollected)} />
+        <StatCard label="Given away (ad / charity)" value={`${m.givingUnits.toLocaleString()} units`} sub={m.givingValue > 0 ? `${money(m.givingValue)} in cost, in range` : "none in range"} />
+        <StatCard label="Value lost — production" value={money(m.productionLossValue)} sub={m.productionLossUnits > 0 ? `${m.productionLossUnits} units, in range` : "none in range"} tone="rust" />
+        <StatCard label="Value lost — spoilage" value={money(m.spoilageValue)} sub="post-production, in range" tone="rust" />
         <StatCard label="Active customers" value={m.activeCustomers} sub="purchased in range" tone="moss" />
         <StatCard label="Production runs" value={data.productionRuns.length} sub="lifetime" />
       </div>
@@ -128,8 +146,12 @@ export default function Overview() {
               <LineChart data={trend} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#323D45" />
                 <XAxis dataKey="label" stroke="#8A959B" fontSize={11} />
-                <YAxis stroke="#8A959B" fontSize={11} />
-                <Tooltip contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }} labelStyle={{ color: "#EEF0F1" }} />
+                <YAxis stroke="#8A959B" fontSize={11} tickFormatter={axisMoney} width={64} />
+                <Tooltip
+                  contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }}
+                  labelStyle={{ color: "#EEF0F1" }}
+                  formatter={(value, name) => [money(value), name]}
+                />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line type="monotone" dataKey="revenue" name="Revenue" stroke={chartColors.revenue} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="grossProfit" name="Gross profit" stroke={chartColors.grossProfit} strokeWidth={2} dot={false} />
@@ -149,8 +171,13 @@ export default function Overview() {
                 <LineChart data={trend} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#323D45" />
                   <XAxis dataKey="label" stroke="#8A959B" fontSize={11} />
-                  <YAxis stroke="#8A959B" fontSize={11} unit="%" />
-                  <Tooltip contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }} labelStyle={{ color: "#EEF0F1" }} />
+                  <YAxis stroke="#8A959B" fontSize={11} unit="%" width={48} />
+                  <Tooltip
+                    contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }}
+                    labelStyle={{ color: "#EEF0F1" }}
+                    formatter={(value) => [`${Number(value).toFixed(1)}%`, "Margin"]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Line type="monotone" dataKey="marginPct" name="Margin %" stroke={chartColors.marginPct} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
@@ -167,8 +194,13 @@ export default function Overview() {
                 <BarChart data={bySegment} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#323D45" />
                   <XAxis dataKey="key" stroke="#8A959B" fontSize={11} />
-                  <YAxis stroke="#8A959B" fontSize={11} />
-                  <Tooltip contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }} labelStyle={{ color: "#EEF0F1" }} />
+                  <YAxis stroke="#8A959B" fontSize={11} tickFormatter={axisMoney} width={64} />
+                  <Tooltip
+                    contentStyle={{ background: "#1A2126", border: "1px solid #323D45", fontSize: 12 }}
+                    labelStyle={{ color: "#EEF0F1" }}
+                    formatter={(value, name) => [money(value), name]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="revenue" name="Revenue" fill={chartColors.segment} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>

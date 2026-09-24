@@ -6,7 +6,7 @@ import Panel from "../components/Panel";
 import StatCard from "../components/StatCard";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
-const blank = { name: "", gender: "", profession: "", segment: "", subCategory: "", state: "", city: "", email: "", phone: "" };
+const blank = { name: "", gender: "", profession: "", segment: "", subCategory: "", branch: "", state: "", city: "", email: "", phone: "" };
 
 export default function Customers() {
   const { data, add, update, remove, addSegment, addWholesaleSubCategory } = useApp();
@@ -71,8 +71,20 @@ export default function Customers() {
     setAddingSubCategory(false);
   };
 
-  const updateExistingCustomerPrice = (customer, productId, value) => {
-    update("customers", customer.id, { customPrices: { ...customer.customPrices, [productId]: parseFloat(value) || 0 } });
+  // Verification step before a price change to an already-onboarded
+  // customer takes effect — a fat-fingered edit here silently changes
+  // what every future sale to them charges, so it's confirmed on blur
+  // rather than saved on every keystroke.
+  const updateExistingCustomerPrice = async (customer, productId, product, nextValue, revert) => {
+    const next = parseFloat(nextValue) || 0;
+    const current = customer.customPrices?.[productId] ?? 0;
+    if (next === current) return;
+    const proceed = await confirmAction(
+      `Change ${customer.name}'s price for ${product.name} · ${product.packSize} to ${money(next)}? Every future sale to them will use this price.`,
+      { confirmLabel: "Save price" }
+    );
+    if (!proceed) { revert(); return; }
+    update("customers", customer.id, { customPrices: { ...customer.customPrices, [productId]: next } });
   };
 
   return (
@@ -114,22 +126,27 @@ export default function Customers() {
                 )}
               </Field>
               {isWholesale ? (
-                <Field label="Wholesale category">
-                  {addingSubCategory ? (
-                    <div className="flex gap-2">
-                      <input className={inputCls} value={newSubCategory} onChange={(e) => setNewSubCategory(e.target.value)} placeholder="New category name" autoFocus />
-                      <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={saveNewSubCategory}>save</button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <select className={inputCls} value={form.subCategory} onChange={(e) => setForm({ ...form, subCategory: e.target.value })}>
-                        <option value="">Select…</option>
-                        {data.wholesaleSubCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={() => setAddingSubCategory(true)}>+ new</button>
-                    </div>
-                  )}
-                </Field>
+                <>
+                  <Field label="Wholesale category">
+                    {addingSubCategory ? (
+                      <div className="flex gap-2">
+                        <input className={inputCls} value={newSubCategory} onChange={(e) => setNewSubCategory(e.target.value)} placeholder="New category name" autoFocus />
+                        <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={saveNewSubCategory}>save</button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <select className={inputCls} value={form.subCategory} onChange={(e) => setForm({ ...form, subCategory: e.target.value })}>
+                          <option value="">Select…</option>
+                          {data.wholesaleSubCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={() => setAddingSubCategory(true)}>+ new</button>
+                      </div>
+                    )}
+                  </Field>
+                  <Field label="Branch / location">
+                    <input className={inputCls} value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} placeholder="e.g. Apapa Branch" />
+                  </Field>
+                </>
               ) : (
                 <>
                   <Field label="Gender"><input className={inputCls} value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} /></Field>
@@ -204,7 +221,7 @@ export default function Customers() {
                 <Fragment key={row.customer.id}>
                   <tr className="border-b border-ink-700/60 text-ink-200">
                     <td className="py-2 pr-4">{row.customer.name}</td>
-                    <td className="py-2 pr-4 chip">{row.customer.segment}{row.customer.subCategory ? ` · ${row.customer.subCategory}` : ""}</td>
+                    <td className="py-2 pr-4 chip">{row.customer.segment}{row.customer.subCategory ? ` · ${row.customer.subCategory}` : ""}{row.customer.branch ? ` · ${row.customer.branch}` : ""}</td>
                     <td className="py-2 pr-4 text-ink-400 text-xs">{row.customer.phone || row.customer.email || "—"}</td>
                     <td className="py-2 pr-4 text-right chip">{row.orders}</td>
                     <td className="py-2 pr-4 text-right chip">{money(row.revenue)}</td>
@@ -233,8 +250,9 @@ export default function Customers() {
                             <Field key={p.id} label={`${p.name} · ${p.packSize}`}>
                               <input
                                 type="number" min="0" step="0.01" className={inputCls}
-                                value={row.customer.customPrices?.[p.id] ?? ""}
-                                onChange={(e) => updateExistingCustomerPrice(row.customer, p.id, e.target.value)}
+                                defaultValue={row.customer.customPrices?.[p.id] ?? ""}
+                                key={`${row.customer.id}-${p.id}-${row.customer.customPrices?.[p.id] ?? ""}`}
+                                onBlur={(e) => updateExistingCustomerPrice(row.customer, p.id, p, e.target.value, () => { e.target.value = row.customer.customPrices?.[p.id] ?? ""; })}
                                 placeholder={p.pricesBySegment?.Wholesale ? String(p.pricesBySegment.Wholesale) : "0.00"}
                               />
                             </Field>

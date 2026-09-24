@@ -12,7 +12,7 @@ import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 const blank = { category: "weight", unit: "", baseFactor: "" };
 
 export default function Settings() {
-  const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency } = useApp();
+  const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency, setVatRate } = useApp();
   const confirmAction = useConfirm();
   const [form, setForm] = useState(blank);
   const [themeRole, setThemeRole] = useState(data.activeRole);
@@ -194,7 +194,23 @@ export default function Settings() {
               placeholder="₦"
             />
           </Field>
+          <Field label="Default VAT rate (%)">
+            <input
+              type="number" min="0" step="0.1"
+              className={inputCls}
+              defaultValue={data.vatRate ?? 7.5}
+              key={data.vatRate}
+              onBlur={(e) => {
+                const next = parseFloat(e.target.value) || 0;
+                if (next !== (data.vatRate ?? 7.5)) setVatRate(next);
+              }}
+            />
+          </Field>
         </div>
+        <p className="text-xs text-ink-500 mt-3">
+          The default VAT rate prefills the VAT field when recording a sale — it can still be
+          changed for any individual sale.
+        </p>
       </Panel>
 
       <Panel title="Units of measure" eyebrow="Built-in conversions, customizable">

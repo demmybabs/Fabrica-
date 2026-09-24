@@ -1,13 +1,14 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
-import { materialLedger } from "../lib/calc";
+import { materialLedger, expiringBatches } from "../lib/calc";
 import { allUnits, formatQuantity, scaledUnitCost } from "../lib/uom";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
 const blankSupplier = { name: "", contact: "" };
-const blankDelivery = { supplierId: "", itemName: "", quantity: "", unit: "kg", totalCost: "", dateReceived: "", amountPaid: "", notes: "" };
+const blankDelivery = { supplierId: "", itemName: "", quantity: "", unit: "kg", totalCost: "", dateReceived: "", expiryDate: "", amountPaid: "", notes: "" };
 
 export default function Supply() {
   const { data, add, remove } = useApp();
@@ -20,6 +21,7 @@ export default function Supply() {
 
   const ledger = materialLedger(data);
   const units = allUnits(data.customUnits);
+  const expiring = expiringBatches(data);
   const supplierById = Object.fromEntries(data.suppliers.map((s) => [s.id, s]));
   const batchCountBySupplier = {};
   for (const b of data.supplyBatches) batchCountBySupplier[b.supplierId] = (batchCountBySupplier[b.supplierId] || 0) + 1;
@@ -42,6 +44,7 @@ export default function Supply() {
       unitCost: quantity > 0 ? totalCost / quantity : 0,
       amountPaid: parseFloat(form.amountPaid) || 0,
       dateReceived: form.dateReceived || new Date().toISOString().slice(0, 10),
+      expiryDate: form.expiryDate || null,
     });
     setForm(blankDelivery);
     setOpenDelivery(false);
@@ -59,10 +62,30 @@ export default function Supply() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Link to="/supply/dashboard" className={btnGhostCls}>View dashboard →</Link>
           <button className={btnGhostCls} onClick={() => setOpenSupplier((o) => !o)}>{openSupplier ? "Cancel" : "+ Onboard a supplier"}</button>
           <button className={btnCls} onClick={() => setOpenDelivery((o) => !o)}>{openDelivery ? "Cancel" : "+ Log a delivery"}</button>
         </div>
       </div>
+
+      {expiring.length > 0 && (
+        <div className="bg-ink-800 border border-[var(--accent)]/50 rounded-lg p-4 flex items-start gap-3">
+          <span className="text-[var(--accent)] text-lg leading-none">⚠</span>
+          <div>
+            <div className="text-sm text-ink-100">
+              {expiring.length} deliver{expiring.length === 1 ? "y" : "ies"} expired or expiring within 30 days
+            </div>
+            <div className="text-xs text-ink-400 mt-1 flex flex-wrap gap-2">
+              {expiring.slice(0, 6).map(({ batch, daysLeft, expired }) => (
+                <span key={batch.id} className={`chip ${expired ? "text-red-400" : "text-[var(--accent)]"}`}>
+                  {batch.itemName} — {expired ? `expired ${Math.abs(daysLeft)}d ago` : `${daysLeft}d left`}
+                </span>
+              ))}
+              {expiring.length > 6 && <span className="chip">+{expiring.length - 6} more</span>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {openSupplier && (
         <Panel title="New supplier" eyebrow="Save them once — they'll show up in the delivery form below">
@@ -108,6 +131,9 @@ export default function Supply() {
             </Field>
             <Field label="Date received">
               <input type="date" className={inputCls} value={form.dateReceived} onChange={(e) => setForm({ ...form, dateReceived: e.target.value })} />
+            </Field>
+            <Field label="Expiry date (if applicable)">
+              <input type="date" className={inputCls} value={form.expiryDate} onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} />
             </Field>
             <Field label="Notes">
               <input className={inputCls} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -200,23 +226,28 @@ export default function Supply() {
                 <th className="py-2 pr-4 text-right">Qty</th>
                 <th className="py-2 pr-4 text-right">Total cost</th>
                 <th className="py-2 pr-4 text-right">Paid</th>
+                <th className="py-2 pr-4">Expiry</th>
                 <th className="py-2 pr-4"></th>
               </tr>
             </thead>
             <tbody>
-              {[...data.supplyBatches].reverse().map((b) => (
-                <tr key={b.id} className="border-b border-ink-700/60 text-ink-200">
-                  <td className="py-2 pr-4 chip">{b.dateReceived}</td>
-                  <td className="py-2 pr-4">{supplierById[b.supplierId]?.name || "—"}</td>
-                  <td className="py-2 pr-4">{b.itemName}</td>
-                  <td className="py-2 pr-4 text-right chip">{b.quantity} {b.unit}</td>
-                  <td className="py-2 pr-4 text-right chip">{money(b.totalCost)}</td>
-                  <td className="py-2 pr-4 text-right chip">{money(b.amountPaid)}</td>
-                  <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
-                    if (await confirmAction(`Remove this delivery of ${b.itemName}? This can't be undone.`, { danger: true, confirmLabel: "Remove" })) remove("supplyBatches", b.id);
-                  }}>remove</button></td>
-                </tr>
-              ))}
+              {[...data.supplyBatches].reverse().map((b) => {
+                const expired = b.expiryDate && b.expiryDate < new Date().toISOString().slice(0, 10);
+                return (
+                  <tr key={b.id} className="border-b border-ink-700/60 text-ink-200">
+                    <td className="py-2 pr-4 chip">{b.dateReceived}</td>
+                    <td className="py-2 pr-4">{supplierById[b.supplierId]?.name || "—"}</td>
+                    <td className="py-2 pr-4">{b.itemName}</td>
+                    <td className="py-2 pr-4 text-right chip">{b.quantity} {b.unit}</td>
+                    <td className="py-2 pr-4 text-right chip">{money(b.totalCost)}</td>
+                    <td className="py-2 pr-4 text-right chip">{money(b.amountPaid)}</td>
+                    <td className={`py-2 pr-4 chip ${expired ? "text-red-400" : "text-ink-400"}`}>{b.expiryDate || "—"}</td>
+                    <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
+                      if (await confirmAction(`Remove this delivery of ${b.itemName}? This can't be undone.`, { danger: true, confirmLabel: "Remove" })) remove("supplyBatches", b.id);
+                    }}>remove</button></td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -22,6 +22,7 @@ const DEFAULTS = {
   themes: {},
   branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
   currency: { code: "NGN", symbol: "₦" },
+  vatRate: 7.5,
 };
 
 const EMPTY = {
@@ -91,6 +92,7 @@ export function useSupabaseDataSource() {
         themes: settings.themes ?? DEFAULTS.themes,
         branding: settings.branding ?? DEFAULTS.branding,
         currency: settings.currency ?? DEFAULTS.currency,
+        vatRate: settings.vatRate ?? DEFAULTS.vatRate,
         activeRole: "owner",
       });
     } catch (e) {
@@ -122,6 +124,7 @@ export function useSupabaseDataSource() {
         themes: settings.themes ?? DEFAULTS.themes,
         branding: settings.branding ?? DEFAULTS.branding,
         currency: settings.currency ?? DEFAULTS.currency,
+        vatRate: settings.vatRate ?? DEFAULTS.vatRate,
       }));
       return;
     }
@@ -220,6 +223,7 @@ export function useSupabaseDataSource() {
   };
   const setBranding = (patch) => updateSettings({ branding: { ...data.branding, ...patch } });
   const setCurrency = (currency) => updateSettings({ currency });
+  const setVatRate = (rate) => updateSettings({ vatRate: rate });
 
   const addIngredientToRecipe = (productId, itemName) => {
     const product = data.products.find((p) => p.id === productId);
@@ -245,6 +249,6 @@ export function useSupabaseDataSource() {
   return {
     data, loaded, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
     addIngredientToRecipe, addSegment, addWholesaleSubCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding, writeError, clearWriteError: () => setWriteError(null),
+    setCurrency, setBranding, setVatRate, writeError, clearWriteError: () => setWriteError(null),
   };
 }

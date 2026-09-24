@@ -207,6 +207,7 @@ export function buildSeed() {
     themes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
+    vatRate: 7.5,
     segments: ["Retail", "Wholesale"],
     wholesaleSubCategories: ["Supermarket", "Distributor", "Grocery store", "Pharmacy"],
   };
@@ -226,6 +227,7 @@ export function buildEmpty() {
     themes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
+    vatRate: 7.5,
     segments: ["Retail", "Wholesale"],
     wholesaleSubCategories: ["Supermarket", "Distributor", "Grocery store", "Pharmacy"],
   };

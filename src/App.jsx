@@ -8,10 +8,13 @@ import ErrorBanner from "./components/ErrorBanner";
 import { ConfirmProvider } from "./lib/ConfirmContext";
 import Overview from "./pages/Overview";
 import Supply from "./pages/Supply";
+import SupplyDashboard from "./pages/SupplyDashboard";
 import Products from "./pages/Products";
 import Production from "./pages/Production";
+import ProductionDashboard from "./pages/ProductionDashboard";
 import Inventory from "./pages/Inventory";
 import Sales from "./pages/Sales";
+import SalesDashboard from "./pages/SalesDashboard";
 import Customers from "./pages/Customers";
 import CustomerPortal from "./pages/CustomerPortal";
 import Settings from "./pages/Settings";
@@ -54,10 +57,13 @@ function AppShell() {
                 <Routes>
                   <Route path="/" element={<Overview />} />
                   <Route path="/supply" element={<Supply />} />
+                  <Route path="/supply/dashboard" element={<SupplyDashboard />} />
                   <Route path="/products" element={<Products />} />
                   <Route path="/production" element={<Production />} />
+                  <Route path="/production/dashboard" element={<ProductionDashboard />} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/sales" element={<Sales />} />
+                  <Route path="/sales/dashboard" element={<SalesDashboard />} />
                   <Route path="/customers" element={<Customers />} />
                   <Route path="/customer-portal" element={<CustomerPortal />} />
                   <Route path="/settings" element={<Settings />} />

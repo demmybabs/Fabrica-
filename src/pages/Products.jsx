@@ -75,8 +75,19 @@ export default function Products() {
     update("products", product.id, { ingredients: product.ingredients.filter((i) => i.itemName !== itemName) });
   };
 
-  const updatePrice = (product, segment, value) => {
-    update("products", product.id, { pricesBySegment: { ...product.pricesBySegment, [segment]: parseFloat(value) || 0 } });
+  // Verification step before an existing product's price changes — this
+  // is what every new sale in that segment charges from this point on,
+  // so it's confirmed on blur rather than applied on every keystroke.
+  const updatePrice = async (product, segment, nextValue, revert) => {
+    const next = parseFloat(nextValue) || 0;
+    const current = product.pricesBySegment?.[segment] ?? 0;
+    if (next === current) return;
+    const proceed = await confirmAction(
+      `Change ${product.name} · ${product.packSize}'s ${segment} price to ${next.toLocaleString()}? This applies to every new sale from now on.`,
+      { confirmLabel: "Save price" }
+    );
+    if (!proceed) { revert(); return; }
+    update("products", product.id, { pricesBySegment: { ...product.pricesBySegment, [segment]: next } });
   };
 
   return (
@@ -174,7 +185,13 @@ export default function Products() {
                 {data.segments.map((seg) => (
                   <div key={seg}>
                     <span className="chip text-ink-500 uppercase block mb-1">{seg} price ({data.currency?.symbol || "₦"})</span>
-                    <input type="number" min="0" step="0.01" className={inputCls} value={product.pricesBySegment?.[seg] ?? ""} onChange={(e) => updatePrice(product, seg, e.target.value)} placeholder="0.00" />
+                    <input
+                      type="number" min="0" step="0.01" className={inputCls}
+                      defaultValue={product.pricesBySegment?.[seg] ?? ""}
+                      key={`${product.id}-${seg}-${product.pricesBySegment?.[seg] ?? ""}`}
+                      onBlur={(e) => updatePrice(product, seg, e.target.value, () => { e.target.value = product.pricesBySegment?.[seg] ?? ""; })}
+                      placeholder="0.00"
+                    />
                   </div>
                 ))}
               </div>

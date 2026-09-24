@@ -22,6 +22,7 @@ create table app_settings (
   wholesale_sub_categories text[] default array['Supermarket','Distributor','Grocery store','Pharmacy'],
   custom_units jsonb default '{}'::jsonb,
   themes jsonb default '{}'::jsonb,
+  vat_rate numeric default 7.5,
   constraint single_row check (id = 1)
 );
 insert into app_settings (id) values (1);
@@ -43,6 +44,7 @@ create table supply_batches (
   total_cost numeric not null,
   amount_paid numeric default 0,
   date_received date not null default current_date,
+  expiry_date date,
   notes text
 );
 
@@ -76,6 +78,7 @@ create table customers (
   profession text,
   segment text default 'Retail',
   sub_category text,
+  branch text,
   state text,
   city text,
   email text,
@@ -90,6 +93,10 @@ create table sales_orders (
   date date not null default current_date,
   payment_mode text default 'Cash',
   amount_paid numeric,
+  payments jsonb default '[]'::jsonb,
+  invoice_number text,
+  vat_rate numeric default 0,
+  vat_amount numeric default 0,
   items jsonb default '[]'::jsonb
 );
 

@@ -128,6 +128,12 @@ export function materialLedger(data) {
 // weight share (a 1kg pack absorbs ~2x the cost of a 500g pack from the
 // same batch) rather than split evenly per unit. Overhead is now a list of
 // categorised costs (electricity, water, etc), summed into the total.
+//
+// Weight share includes both the good (counted) quantity AND anything
+// logged as lost in production for that line — a batch that lost units
+// during the process still consumed its share of materials/labor/overhead,
+// so its cost is real even though it never reached inventory. That lost
+// share is reported separately as lossValue, not folded into costPerUnit.
 export function productionRunCosts(run, ledger, productById) {
   const ledgerByItem = Object.fromEntries(ledger.map((r) => [r.itemName, r]));
   const materialCost = run.inputs.reduce((sum, input) => {
@@ -142,7 +148,15 @@ export function productionRunCosts(run, ledger, productById) {
     const product = productById[o.productId];
     const packWeight = parsePackSize(product?.packSize || "1unit");
     const qty = effectiveQty(o);
-    return { ...o, product, quantity: qty, isCounted: o.countedQuantity !== undefined, weightShare: packWeight * qty };
+    const lossQty = o.lossQuantity || 0;
+    return {
+      ...o,
+      product,
+      quantity: qty,
+      lossQuantity: lossQty,
+      isCounted: o.countedQuantity !== undefined,
+      weightShare: packWeight * (qty + lossQty),
+    };
   });
   const totalWeight = outputsWithWeight.reduce((s, o) => s + o.weightShare, 0) || 1;
 
@@ -150,12 +164,44 @@ export function productionRunCosts(run, ledger, productById) {
     materialCost,
     overheadTotal,
     totalRunCost,
-    outputs: outputsWithWeight.map((o) => ({
-      ...o,
-      costAllocated: totalRunCost * (o.weightShare / totalWeight),
-      costPerUnit: (totalRunCost * (o.weightShare / totalWeight)) / (o.quantity || 1),
-    })),
+    outputs: outputsWithWeight.map((o) => {
+      const perUnitCost = totalRunCost * (parsePackSize(o.product?.packSize || "1unit") / totalWeight);
+      return {
+        ...o,
+        costAllocated: perUnitCost * o.quantity,
+        costPerUnit: perUnitCost,
+        lossValue: perUnitCost * o.lossQuantity,
+      };
+    }),
   };
+}
+
+// Every run's production-loss lines flattened into one list, with the
+// value lost estimated at the same per-unit cost as the good units from
+// that run (same materials, same process — just didn't make it to
+// inventory). This is distinct from Inventory's spoilage log, which
+// tracks stock that spoiled AFTER being counted in and stored.
+export function productionLosses(data) {
+  const ledger = materialLedger(data);
+  const productById = Object.fromEntries(data.products.map((p) => [p.id, p]));
+  const rows = [];
+  for (const run of data.productionRuns) {
+    const { outputs } = productionRunCosts(run, ledger, productById);
+    for (const o of outputs) {
+      if (o.lossQuantity > 0) {
+        rows.push({
+          runId: run.id,
+          batchCode: run.batchCode,
+          date: run.date,
+          product: o.product,
+          productId: o.productId,
+          lossQuantity: o.lossQuantity,
+          lossValue: o.lossValue,
+        });
+      }
+    }
+  }
+  return rows;
 }
 
 // Finished-goods inventory: quantity on hand and weighted-average cost per
@@ -217,7 +263,12 @@ export function salesWithMargin(data) {
   for (const order of data.salesOrders) {
     for (const item of order.items || []) {
       const costPerUnit = costByProduct[item.productId] || 0;
-      const revenue = item.quantity * item.unitPrice;
+      // A giveaway line (advertising/charity — no charge) never counts as
+      // revenue, whatever price happens to be stored on it. It still
+      // consumes inventory and carries a real cost, which is what makes
+      // it worth tracking separately rather than just leaving it off.
+      const isGiveaway = !!item.isGiveaway;
+      const revenue = isGiveaway ? 0 : item.quantity * item.unitPrice;
       const cogs = item.quantity * costPerUnit;
       rows.push({
         id: `${order.id}::${item.productId}`,
@@ -231,6 +282,7 @@ export function salesWithMargin(data) {
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         costPerUnit,
+        isGiveaway,
         revenue,
         cogs,
         margin: revenue - cogs,
@@ -239,6 +291,21 @@ export function salesWithMargin(data) {
     }
   }
   return rows;
+}
+
+// Every giveaway line (advertising / charity — items given out at no
+// charge) across all orders, with the cost value of what was given away
+// estimated at the same weighted-average production cost used everywhere
+// else. Units still count toward stock movement (finishedGoodsInventory
+// already treats every item line the same way regardless of price).
+export function givingSummary(data, range = {}) {
+  const lines = salesWithMargin(data).filter((s) => s.isGiveaway && inRange(s.date, range.from, range.to));
+  return {
+    units: lines.reduce((s, l) => s + l.quantity, 0),
+    value: lines.reduce((s, l) => s + l.cogs, 0),
+    orders: new Set(lines.map((l) => l.orderId)).size,
+    lines,
+  };
 }
 
 export function customerAnalytics(data) {
@@ -354,8 +421,23 @@ export function orderPayments(order, orderTotal) {
   return [{ amount, mode: order.paymentMode || "Cash", date: order.date }];
 }
 
+// A "Credit" line in the payments list isn't money that came in — it's a
+// record that this much of the order was deliberately extended to the
+// customer to pay later. Counting it toward "paid" was the bug behind
+// credit sales showing as fully paid: it made money the business never
+// received look collected. Only genuinely-received modes count here.
 export function orderPaidTotal(order, orderTotal) {
-  return orderPayments(order, orderTotal).reduce((s, p) => s + (p.amount || 0), 0);
+  return orderPayments(order, orderTotal)
+    .filter((p) => p.mode !== "Credit")
+    .reduce((s, p) => s + (p.amount || 0), 0);
+}
+
+// The portion of an order explicitly marked as extended on credit (as
+// opposed to a balance that's simply unpaid without anyone saying why).
+export function orderCreditTotal(order, orderTotal) {
+  return orderPayments(order, orderTotal)
+    .filter((p) => p.mode === "Credit")
+    .reduce((s, p) => s + (p.amount || 0), 0);
 }
 
 export function summarizePaymentModes(payments) {
@@ -367,7 +449,9 @@ export function summarizePaymentModes(payments) {
 
 export function overviewMetrics(data, range = {}) {
   const { from, to } = range;
-  const lines = salesWithMargin(data).filter((s) => inRange(s.date, from, to));
+  const allLines = salesWithMargin(data);
+  const lines = allLines.filter((s) => inRange(s.date, from, to) && !s.isGiveaway);
+  const givingLines = allLines.filter((s) => s.isGiveaway && inRange(s.date, from, to));
   const ledger = materialLedger(data);
   const inv = finishedGoodsInventory(data);
 
@@ -378,13 +462,25 @@ export function overviewMetrics(data, range = {}) {
   const activeCustomers = new Set(lines.map((s) => s.customerId)).size;
   const inventoryValue = inv.reduce((s, r) => s + r.valueOnHand, 0) + ledger.reduce((s, r) => s + r.valueRemaining, 0);
   const payables = ledger.reduce((s, r) => s + r.payable, 0);
+  const ordersInRange = data.salesOrders.filter((o) => inRange(o.date, from, to));
   const receivables = data.salesOrders.reduce((s, order) => {
     const total = (order.items || []).reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
     const paid = orderPaidTotal(order, total);
     return s + Math.max(0, total - paid);
   }, 0);
+  const onCredit = data.salesOrders.reduce((s, order) => {
+    const total = (order.items || []).reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    return s + orderCreditTotal(order, total);
+  }, 0);
+  const vatCollected = ordersInRange.reduce((s, o) => s + (o.vatAmount || 0), 0);
   const unitsSold = lines.reduce((s, r) => s + r.quantity, 0);
   const orderCount = new Set(lines.map((r) => r.orderId)).size;
+  const givingUnits = givingLines.reduce((s, r) => s + r.quantity, 0);
+  const givingValue = givingLines.reduce((s, r) => s + r.cogs, 0);
+  const lossRows = productionLosses(data).filter((r) => inRange(r.date, from, to));
+  const productionLossValue = lossRows.reduce((s, r) => s + r.lossValue, 0);
+  const productionLossUnits = lossRows.reduce((s, r) => s + r.lossQuantity, 0);
+  const spoilageValue = (data.spoilage || []).filter((s) => inRange(s.date, from, to)).reduce((s, r) => s + (r.valueLost || 0), 0);
 
   return {
     totalRevenue,
@@ -395,8 +491,15 @@ export function overviewMetrics(data, range = {}) {
     inventoryValue,
     payables,
     receivables,
+    onCredit,
+    vatCollected,
     unitsSold,
     orderCount,
+    givingUnits,
+    givingValue,
+    productionLossValue,
+    productionLossUnits,
+    spoilageValue,
   };
 }
 
@@ -423,6 +526,77 @@ function bucketLabel(key, groupBy) {
   }
   const [y, m] = key.split("-");
   return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
+// Ranks products by revenue or units sold (real sales only — giveaways
+// excluded from revenue automatically since their revenue is already 0,
+// but still show up under units if includeGiveaways is true).
+export function topProducts(data, range = {}, by = "revenue", limit = 5) {
+  const lines = salesWithMargin(data).filter((s) => inRange(s.date, range.from, range.to) && !s.isGiveaway);
+  const groups = {};
+  for (const l of lines) {
+    const key = l.productId || "—";
+    if (!groups[key]) groups[key] = { product: l.product, revenue: 0, quantity: 0, margin: 0 };
+    groups[key].revenue += l.revenue;
+    groups[key].quantity += l.quantity;
+    groups[key].margin += l.margin;
+  }
+  return Object.values(groups).sort((a, b) => b[by] - a[by]).slice(0, limit);
+}
+
+// Ranks raw materials by total amount spent (lifetime — supply cost isn't
+// date-ranged the way sales are, since a delivery's cost is fixed at
+// receipt regardless of when it's later consumed).
+export function topMaterialsBySpend(data, limit = 5) {
+  return [...materialLedger(data)].sort((a, b) => b.costSupplied - a.costSupplied).slice(0, limit);
+}
+
+export function topSuppliersBySpend(data, limit = 5) {
+  const bySupplier = {};
+  for (const b of data.supplyBatches) {
+    if (!b.supplierId) continue;
+    if (!bySupplier[b.supplierId]) bySupplier[b.supplierId] = { supplierId: b.supplierId, spend: 0, deliveries: 0 };
+    bySupplier[b.supplierId].spend += b.totalCost;
+    bySupplier[b.supplierId].deliveries += 1;
+  }
+  const supplierById = Object.fromEntries(data.suppliers.map((s) => [s.id, s]));
+  return Object.values(bySupplier)
+    .map((r) => ({ ...r, supplier: supplierById[r.supplierId] }))
+    .sort((a, b) => b.spend - a.spend)
+    .slice(0, limit);
+}
+
+// How revenue in range splits across payment modes — Cash/POS/Transfer add
+// up to what was actually collected; Credit is shown too since it's real
+// business activity, just not yet collected.
+export function paymentModeBreakdown(data, range = {}) {
+  const orders = data.salesOrders.filter((o) => inRange(o.date, range.from, range.to));
+  const totals = {};
+  for (const order of orders) {
+    const total = (order.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    for (const p of orderPayments(order, total)) {
+      const mode = p.mode || "Cash";
+      totals[mode] = (totals[mode] || 0) + (p.amount || 0);
+    }
+  }
+  return Object.entries(totals).map(([mode, amount]) => ({ mode, amount }));
+}
+
+// Supply batches with an expiry date that's already passed or is coming
+// up within `withinDays` — a simple, visible early-warning list rather
+// than anything that blocks or auto-removes stock.
+export function expiringBatches(data, withinDays = 30) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return data.supplyBatches
+    .filter((b) => b.expiryDate)
+    .map((b) => {
+      const expiry = new Date(b.expiryDate + "T00:00:00");
+      const daysLeft = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+      return { batch: b, daysLeft, expired: daysLeft < 0 };
+    })
+    .filter((r) => r.daysLeft <= withinDays)
+    .sort((a, b) => a.daysLeft - b.daysLeft);
 }
 
 export function salesTrend(data, range = {}, groupBy = "monthly") {
