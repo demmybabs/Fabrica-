@@ -13,6 +13,7 @@ const allLinks = [
   { to: "/sales", label: "Sales", code: "04" },
   { to: "/customers", label: "Customers", code: "05" },
   { to: "/customer-portal", label: "My orders", code: "05a" },
+  { to: "/financials", label: "Financials", code: "07" },
   { to: "/settings", label: "Settings", code: "06" },
 ];
 

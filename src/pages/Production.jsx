@@ -4,6 +4,7 @@ import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
 import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation } from "../lib/calc";
 import { allUnits, toBase, formatQuantity } from "../lib/uom";
+import { postJournalEntry, journalForProductionCount } from "../lib/ledger";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -61,10 +62,30 @@ export default function Production() {
     setAddingOutputTo(null);
   };
 
-  const setCountedQuantity = (run, index, value) => {
+  // A physical count is the moment a run's output line becomes real money
+  // — before that, everything about it was an estimate. So this is also
+  // the moment its share of materials/labor/overhead posts to the ledger
+  // (once only, per line — the ledgerPosted flag guards against a second
+  // post if the count is somehow re-triggered).
+  const setCountedQuantity = async (run, index, value) => {
     if (value === "" || value === null) return;
-    const nextOutputs = run.outputs.map((o, i) => (i === index ? { ...o, countedQuantity: parseFloat(value) || 0 } : o));
-    update("productionRuns", run.id, { outputs: nextOutputs });
+    const target = run.outputs[index];
+    const isFirstCount = target?.countedQuantity === undefined && !target?.ledgerPosted;
+    const nextOutputs = run.outputs.map((o, i) => (i === index ? { ...o, countedQuantity: parseFloat(value) || 0, ledgerPosted: isFirstCount ? true : !!o.ledgerPosted } : o));
+    await update("productionRuns", run.id, { outputs: nextOutputs });
+    if (isFirstCount) {
+      const { outputs: outs, materialCost, overheadTotal } = productionRunCosts({ ...run, outputs: nextOutputs }, ledger, productById);
+      const totalWeight = outs.reduce((s, o) => s + o.weightShare, 0) || 1;
+      const line = outs[index];
+      const shareOfRun = line.weightShare / totalWeight;
+      await postJournalEntry(add, journalForProductionCount(run, line, {
+        materialConsumed: materialCost * shareOfRun,
+        laborShare: (run.laborCost || 0) * shareOfRun,
+        overheadShare: overheadTotal * shareOfRun,
+        finishedGoodsIn: line.costAllocated,
+        lossValue: line.lossValue,
+      }));
+    }
   };
 
   // Production loss — units lost during the process itself (burnt,

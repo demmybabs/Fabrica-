@@ -13,6 +13,10 @@ const TABLES = {
   customers: "customers",
   salesOrders: "sales_orders",
   spoilage: "spoilage",
+  journalEntries: "journal_entries",
+  operatingExpenses: "operating_expenses",
+  fixedAssets: "fixed_assets",
+  equityTransactions: "equity_transactions",
 };
 
 const DEFAULTS = {
@@ -28,6 +32,8 @@ const DEFAULTS = {
 const EMPTY = {
   suppliers: [], supplyBatches: [], products: [], productionRuns: [],
   customers: [], salesOrders: [], spoilage: [], activeRole: "owner",
+  journalEntries: [], operatingExpenses: [], fixedAssets: [], equityTransactions: [],
+  chartOfAccounts: [],
   ...DEFAULTS,
 };
 
@@ -67,7 +73,7 @@ export function useSupabaseDataSource() {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     try {
-      const [suppliers, supplyBatches, products, productionRuns, customers, salesOrders, spoilage, settingsRes] = await Promise.all([
+      const [suppliers, supplyBatches, products, productionRuns, customers, salesOrders, spoilage, journalEntries, operatingExpenses, fixedAssets, equityTransactions, chartOfAccounts, settingsRes] = await Promise.all([
         supabase.from("suppliers").select("*"),
         supabase.from("supply_batches").select("*"),
         supabase.from("products").select("*"),
@@ -75,6 +81,11 @@ export function useSupabaseDataSource() {
         supabase.from("customers").select("*"),
         supabase.from("sales_orders").select("*"),
         supabase.from("spoilage").select("*"),
+        supabase.from("journal_entries").select("*"),
+        supabase.from("operating_expenses").select("*"),
+        supabase.from("fixed_assets").select("*"),
+        supabase.from("equity_transactions").select("*"),
+        supabase.from("chart_of_accounts").select("*"),
         supabase.from("app_settings").select("*").eq("id", 1).single(),
       ]);
       const settings = settingsRes.data ? toCamel(settingsRes.data) : {};
@@ -86,6 +97,11 @@ export function useSupabaseDataSource() {
         customers: (customers.data || []).map(toCamel),
         salesOrders: (salesOrders.data || []).map(toCamel),
         spoilage: (spoilage.data || []).map(toCamel),
+        journalEntries: (journalEntries.data || []).map(toCamel),
+        operatingExpenses: (operatingExpenses.data || []).map(toCamel),
+        fixedAssets: (fixedAssets.data || []).map(toCamel),
+        equityTransactions: (equityTransactions.data || []).map(toCamel),
+        chartOfAccounts: (chartOfAccounts.data || []).map(toCamel),
         customUnits: settings.customUnits ?? DEFAULTS.customUnits,
         segments: settings.segments ?? DEFAULTS.segments,
         wholesaleSubCategories: settings.wholesaleSubCategories ?? DEFAULTS.wholesaleSubCategories,
@@ -110,7 +126,12 @@ export function useSupabaseDataSource() {
   // re-download suppliers, products, production runs, and everything
   // else untouched by that change. fetchAll (above) is still used for
   // the initial load, where everything is needed anyway.
-  const KEY_BY_TABLE = { suppliers: "suppliers", supply_batches: "supplyBatches", products: "products", production_runs: "productionRuns", customers: "customers", sales_orders: "salesOrders", spoilage: "spoilage" };
+  const KEY_BY_TABLE = {
+    suppliers: "suppliers", supply_batches: "supplyBatches", products: "products", production_runs: "productionRuns",
+    customers: "customers", sales_orders: "salesOrders", spoilage: "spoilage",
+    journal_entries: "journalEntries", operating_expenses: "operatingExpenses", fixed_assets: "fixedAssets",
+    equity_transactions: "equityTransactions", chart_of_accounts: "chartOfAccounts",
+  };
   const fetchTable = useCallback(async (table) => {
     if (table === "app_settings") {
       const { data: settingsRow, error } = await supabase.from("app_settings").select("*").eq("id", 1).single();
@@ -141,7 +162,7 @@ export function useSupabaseDataSource() {
   // data nothing changed.
   useEffect(() => {
     const channel = supabase.channel("fabrica-sync");
-    for (const table of [...Object.values(TABLES), "app_settings"]) {
+    for (const table of [...Object.values(TABLES), "app_settings", "chart_of_accounts"]) {
       channel.on("postgres_changes", { event: "*", schema: "public", table }, () => fetchTable(table));
     }
     channel.subscribe();

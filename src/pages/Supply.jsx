@@ -4,6 +4,7 @@ import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
 import { materialLedger, expiringBatches } from "../lib/calc";
 import { allUnits, formatQuantity, scaledUnitCost } from "../lib/uom";
+import { postJournalEntry, journalForSupply } from "../lib/ledger";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -33,19 +34,24 @@ export default function Supply() {
     setOpenSupplier(false);
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     const quantity = parseFloat(form.quantity) || 0;
     const totalCost = parseFloat(form.totalCost) || 0;
-    add("supplyBatches", {
+    const amountPaid = parseFloat(form.amountPaid) || 0;
+    const dateReceived = form.dateReceived || new Date().toISOString().slice(0, 10);
+    const result = await add("supplyBatches", {
       ...form,
       quantity,
       totalCost,
       unitCost: quantity > 0 ? totalCost / quantity : 0,
-      amountPaid: parseFloat(form.amountPaid) || 0,
-      dateReceived: form.dateReceived || new Date().toISOString().slice(0, 10),
+      amountPaid,
+      dateReceived,
       expiryDate: form.expiryDate || null,
     });
+    if (result?.ok !== false) {
+      await postJournalEntry(add, journalForSupply({ id: result.id, itemName: form.itemName, totalCost, amountPaid, dateReceived }));
+    }
     setForm(blankDelivery);
     setOpenDelivery(false);
   };

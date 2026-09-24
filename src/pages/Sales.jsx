@@ -4,6 +4,7 @@ import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
 import { salesWithMargin, finishedGoodsInventory, orderPayments, orderPaidTotal, orderCreditTotal } from "../lib/calc";
 import { makeUniqueInvoiceNumber } from "../lib/invoiceNumber";
+import { postJournalEntry, journalForSale, journalForPaymentReceived } from "../lib/ledger";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -119,7 +120,15 @@ export default function Sales() {
       .map((p) => ({ amount: parseFloat(p.amount) || 0, mode: p.mode, date: paymentDate }));
     const customer = customerById[customerId];
     const invoiceNumber = makeUniqueInvoiceNumber(customer, paymentDate, data.salesOrders.map((o) => o.invoiceNumber));
-    add("salesOrders", {
+    const soldItems = items
+      .filter((i) => i.productId && i.quantity)
+      .map((i) => ({
+        productId: i.productId,
+        quantity: parseFloat(i.quantity) || 0,
+        unitPrice: i.isGiveaway ? 0 : parseFloat(i.unitPrice) || 0,
+        isGiveaway: !!i.isGiveaway,
+      }));
+    const result = await add("salesOrders", {
       customerId,
       date: paymentDate,
       invoiceNumber,
@@ -131,15 +140,31 @@ export default function Sales() {
       // the other. A "Credit" line here just documents that part was
       // deliberately extended to the customer — see orderPaidTotal.
       payments: enteredPayments,
-      items: items
-        .filter((i) => i.productId && i.quantity)
-        .map((i) => ({
-          productId: i.productId,
-          quantity: parseFloat(i.quantity) || 0,
-          unitPrice: i.isGiveaway ? 0 : parseFloat(i.unitPrice) || 0,
-          isGiveaway: !!i.isGiveaway,
-        })),
+      items: soldItems,
     });
+    // Post to the ledger only after the sale itself is safely saved —
+    // a journal-posting hiccup should never be mistaken for a lost sale.
+    if (result?.ok !== false) {
+      const costByProduct = Object.fromEntries(inv.map((r) => [r.product.id, r.avgCostPerUnit]));
+      let cogsSold = 0;
+      let cogsGiveaway = 0;
+      for (const item of soldItems) {
+        const cost = (costByProduct[item.productId] || 0) * item.quantity;
+        if (item.isGiveaway) cogsGiveaway += cost;
+        else cogsSold += cost;
+      }
+      await postJournalEntry(add, journalForSale(
+        { id: result.id, date: paymentDate, invoiceNumber },
+        {
+          subtotal: Math.round(subtotal * 100) / 100,
+          vatAmount: Math.round(vatAmount * 100) / 100,
+          cashReceived: totalEnteredPayments,
+          receivableDelta: Math.max(0, balance),
+          cogsSold,
+          cogsGiveaway,
+        }
+      ));
+    }
     setCustomerId(""); setDate(""); setItems([{ ...blankItem }]); setPayments([{ ...blankPayment }]); setVatRate(data.vatRate ?? 7.5); setFormError(""); setOpen(false);
   };
 
@@ -160,7 +185,13 @@ export default function Sales() {
     if (!proceed) return;
     const existing = orderPayments(order, orderTotalForOrder);
     const newPayment = { amount, mode, date: new Date().toISOString().slice(0, 10) };
-    update("salesOrders", order.id, { payments: [...existing, newPayment] });
+    await update("salesOrders", order.id, { payments: [...existing, newPayment] });
+    // A genuine (non-Credit) payment moves cash in and shrinks the
+    // receivable booked at sale time — a Credit line only documents
+    // intent and doesn't move money, so it isn't posted.
+    if (mode !== "Credit") {
+      await postJournalEntry(add, journalForPaymentReceived(order, amount));
+    }
     setPaymentDrafts((d) => { const next = { ...d }; delete next[order.id]; return next; });
   };
 

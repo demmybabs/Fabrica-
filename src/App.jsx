@@ -17,6 +17,7 @@ import Sales from "./pages/Sales";
 import SalesDashboard from "./pages/SalesDashboard";
 import Customers from "./pages/Customers";
 import CustomerPortal from "./pages/CustomerPortal";
+import Financials from "./pages/Financials";
 import Settings from "./pages/Settings";
 
 function AuthGate({ children }) {
@@ -66,6 +67,7 @@ function AppShell() {
                   <Route path="/sales/dashboard" element={<SalesDashboard />} />
                   <Route path="/customers" element={<Customers />} />
                   <Route path="/customer-portal" element={<CustomerPortal />} />
+                  <Route path="/financials" element={<Financials />} />
                   <Route path="/settings" element={<Settings />} />
                 </Routes>
               </main>

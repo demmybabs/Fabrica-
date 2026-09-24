@@ -3,6 +3,7 @@ import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
 import { finishedGoodsInventory, materialLedger, estimateSpoilageValue } from "../lib/calc";
 import { allUnits, formatQuantity } from "../lib/uom";
+import { postJournalEntry, journalForSpoilage } from "../lib/ledger";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -21,13 +22,16 @@ export default function Inventory() {
   const rawValue = ledger.reduce((s, r) => s + r.valueRemaining, 0);
   const spoilagePreview = spoilForm.quantity ? estimateSpoilageValue(data, spoilForm) : null;
 
-  const submitSpoil = (e) => {
+  const submitSpoil = async (e) => {
     e.preventDefault();
     const { value } = estimateSpoilageValue(data, spoilForm);
     const record = spoilForm.kind === "product"
       ? { kind: "product", productId: spoilForm.productId, quantity: parseFloat(spoilForm.quantity) || 0, date: spoilForm.date || new Date().toISOString().slice(0, 10), reason: spoilForm.reason, valueLost: value }
       : { kind: "material", itemName: spoilForm.itemName, unit: spoilForm.unit, quantity: parseFloat(spoilForm.quantity) || 0, date: spoilForm.date || new Date().toISOString().slice(0, 10), reason: spoilForm.reason, valueLost: value };
-    add("spoilage", record);
+    const result = await add("spoilage", record);
+    if (result?.ok !== false) {
+      await postJournalEntry(add, journalForSpoilage({ ...record, id: result.id }));
+    }
     setSpoilForm(blankSpoil);
     setOpenSpoil(false);
   };
