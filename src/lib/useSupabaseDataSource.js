@@ -31,6 +31,7 @@ const DEFAULTS = {
   vatRate: 7.5,
   receivablesDays: 30,
   payablesDays: 30,
+  invoiceSettings: { address: "", phone: "", email: "", taxId: "", bankName: "", accountName: "", accountNumber: "", paymentMethod: "Transfer", dueTerms: "On Receipt", notes: "" },
 };
 
 const EMPTY = {
@@ -118,6 +119,7 @@ export function useSupabaseDataSource() {
         vatRate: settings.vatRate ?? DEFAULTS.vatRate,
         receivablesDays: settings.receivablesDays ?? DEFAULTS.receivablesDays,
         payablesDays: settings.payablesDays ?? DEFAULTS.payablesDays,
+        invoiceSettings: settings.invoiceSettings ?? DEFAULTS.invoiceSettings,
         activeRole: "owner",
       });
     } catch (e) {
@@ -158,6 +160,7 @@ export function useSupabaseDataSource() {
         vatRate: settings.vatRate ?? DEFAULTS.vatRate,
         receivablesDays: settings.receivablesDays ?? DEFAULTS.receivablesDays,
         payablesDays: settings.payablesDays ?? DEFAULTS.payablesDays,
+        invoiceSettings: settings.invoiceSettings ?? DEFAULTS.invoiceSettings,
       }));
       return;
     }
@@ -263,6 +266,7 @@ export function useSupabaseDataSource() {
   const setVatRate = (rate) => updateSettings({ vatRate: rate });
   const setReceivablesDays = (days) => updateSettings({ receivablesDays: days });
   const setPayablesDays = (days) => updateSettings({ payablesDays: days });
+  const setInvoiceSettings = (patch) => updateSettings({ invoiceSettings: { ...data.invoiceSettings, ...patch } });
 
   const addIngredientToRecipe = (productId, itemName) => {
     const product = data.products.find((p) => p.id === productId);
@@ -288,6 +292,6 @@ export function useSupabaseDataSource() {
   return {
     data, loaded, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
     addIngredientToRecipe, addSegment, addWholesaleSubCategory, addExpenseCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding, setVatRate, setReceivablesDays, setPayablesDays, writeError, clearWriteError: () => setWriteError(null),
+    setCurrency, setBranding, setVatRate, setReceivablesDays, setPayablesDays, setInvoiceSettings, writeError, clearWriteError: () => setWriteError(null),
   };
 }

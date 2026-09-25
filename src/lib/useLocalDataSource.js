@@ -60,10 +60,11 @@ export function useLocalDataSource() {
   const setVatRate = (rate) => setData((d) => ({ ...d, vatRate: rate }));
   const setReceivablesDays = (days) => setData((d) => ({ ...d, receivablesDays: days }));
   const setPayablesDays = (days) => setData((d) => ({ ...d, payablesDays: days }));
+  const setInvoiceSettings = (patch) => setData((d) => ({ ...d, invoiceSettings: { ...d.invoiceSettings, ...patch } }));
 
   return {
     data, loaded: true, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
     addIngredientToRecipe, addSegment, addWholesaleSubCategory, addExpenseCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding, setVatRate, setReceivablesDays, setPayablesDays, writeError: null, clearWriteError: () => {},
+    setCurrency, setBranding, setVatRate, setReceivablesDays, setPayablesDays, setInvoiceSettings, writeError: null, clearWriteError: () => {},
   };
 }

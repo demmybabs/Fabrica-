@@ -5,6 +5,7 @@ import { useConfirm } from "../lib/ConfirmContext";
 import { salesWithMargin, finishedGoodsInventory, orderPayments, orderPaidTotal, orderCreditTotal, debtDueDate, debtStatus, sortByDateDesc } from "../lib/calc";
 import { makeUniqueInvoiceNumber } from "../lib/invoiceNumber";
 import { postJournalEntry, journalForSale, journalForPaymentReceived } from "../lib/ledger";
+// @react-pdf/renderer is heavy — loaded on demand inside downloadInvoiceForOrder below.
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
@@ -186,7 +187,66 @@ export default function Sales() {
         }
       ));
     }
+    // Auto-generate the matching PDF invoice for this sale — a Sale-or-
+    // Return still gets a document (a delivery note, since nothing's
+    // billed yet); an ordinary sale gets the real invoice, with amounts.
+    if (result?.ok !== false && result?.id) {
+      downloadInvoiceForOrder({
+        ...result,
+        customerId,
+        branch: branch || undefined,
+        date: paymentDate,
+        invoiceNumber,
+        vatRate: parseFloat(vatRate) || 0,
+        vatAmount: isSaleOrReturn ? 0 : Math.round(vatAmount * 100) / 100,
+        payments: isSaleOrReturn ? [] : enteredPayments,
+        saleType: isSaleOrReturn ? "sale_or_return" : undefined,
+        closed: isSaleOrReturn ? false : undefined,
+        items: soldItems,
+      }).catch((err) => console.error("Fabrica: invoice PDF generation failed", err));
+    }
     setCustomerId(""); setBranch(""); setDate(""); setItems([{ ...blankItem }]); setPayments([{ ...blankPayment }]); setVatRate(data.vatRate ?? 7.5); setReceivablesDays(data.receivablesDays ?? 30); setIsSaleOrReturn(false); setFormError(""); setOpen(false);
+  };
+
+  // Builds the same invoice PDF the "invoice" button on a saved order
+  // produces, straight from an order object (used right after saving,
+  // and for reprints/backdated corrections from the order list below).
+  const downloadInvoiceForOrder = async (order) => {
+    const { downloadInvoicePdf } = await import("../lib/invoicePdf");
+    const customer = customerById[order.customerId];
+    const isOpen = order.saleType === "sale_or_return" && !order.closed;
+    const orderLines = (order.items || []).map((it) => {
+      const product = productById[it.productId];
+      const qty = it.quantity;
+      return {
+        name: product ? `${product.name} · ${product.packSize}` : "Item",
+        quantity: qty,
+        unitPrice: it.unitPrice,
+        amount: it.isGiveaway ? 0 : qty * it.unitPrice,
+        isGiveaway: it.isGiveaway,
+      };
+    });
+    const subtotal = orderLines.reduce((s, l) => s + (l.isGiveaway ? 0 : l.amount), 0);
+    const vatAmount = order.vatAmount || 0;
+    const total = subtotal + vatAmount;
+    const paidTotal = (order.payments || []).reduce((s, p) => s + (p.mode === "Credit" ? 0 : p.amount || 0), 0);
+    const balance = Math.max(0, total - paidTotal);
+    await downloadInvoicePdf({
+      branding: data.branding,
+      invoiceSettings: data.invoiceSettings,
+      money,
+      order,
+      customer,
+      lineItems: orderLines,
+      subtotal,
+      vatAmount,
+      vatRate: order.vatRate,
+      total,
+      paid: paidTotal,
+      balance,
+      isOpenSaleOrReturn: isOpen,
+      fileName: `${order.invoiceNumber || "invoice"}.pdf`,
+    });
   };
 
   // Closing a Sale-or-Return — the user says how many of each item came
@@ -451,6 +511,7 @@ export default function Sales() {
                         </span>
                       );
                     })()}
+                    <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => downloadInvoiceForOrder(order)}>invoice</button>
                     <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
                       if (await confirmAction("Remove this order? This can't be undone.", { danger: true, confirmLabel: "Remove" })) remove("salesOrders", orderId);
                     }}>remove order</button>

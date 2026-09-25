@@ -12,7 +12,7 @@ import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 const blank = { category: "weight", unit: "", baseFactor: "" };
 
 export default function Settings() {
-  const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency, setVatRate, setReceivablesDays, setPayablesDays } = useApp();
+  const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency, setVatRate, setReceivablesDays, setPayablesDays, setInvoiceSettings } = useApp();
   const confirmAction = useConfirm();
   const [form, setForm] = useState(blank);
   const [themeRole, setThemeRole] = useState(data.activeRole);
@@ -22,6 +22,7 @@ export default function Settings() {
   const theme = data.themes?.[themeRole] || {};
   const branding = data.branding || {};
   const currency = data.currency || { code: "NGN", symbol: "₦" };
+  const invoiceSettings = data.invoiceSettings || {};
 
   const addUnit = async (e) => {
     e.preventDefault();
@@ -122,6 +123,45 @@ export default function Settings() {
           </div>
           {logoError && <p className="text-sm text-[var(--accent)] mt-2">{logoError}</p>}
         </Field>
+      </Panel>
+
+      <Panel title="Invoice details" eyebrow="Printed on every sales invoice PDF, alongside the customer's own details">
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <Field label="Business address">
+            <input className={inputCls} value={invoiceSettings.address || ""} onChange={(e) => setInvoiceSettings({ address: e.target.value })} />
+          </Field>
+          <Field label="Phone">
+            <input className={inputCls} value={invoiceSettings.phone || ""} onChange={(e) => setInvoiceSettings({ phone: e.target.value })} />
+          </Field>
+          <Field label="Email">
+            <input className={inputCls} value={invoiceSettings.email || ""} onChange={(e) => setInvoiceSettings({ email: e.target.value })} />
+          </Field>
+          <Field label="Tax ID (optional)">
+            <input className={inputCls} value={invoiceSettings.taxId || ""} onChange={(e) => setInvoiceSettings({ taxId: e.target.value })} />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <Field label="Bank name">
+            <input className={inputCls} value={invoiceSettings.bankName || ""} onChange={(e) => setInvoiceSettings({ bankName: e.target.value })} />
+          </Field>
+          <Field label="Account name">
+            <input className={inputCls} value={invoiceSettings.accountName || ""} onChange={(e) => setInvoiceSettings({ accountName: e.target.value })} />
+          </Field>
+          <Field label="Account number">
+            <input className={inputCls} value={invoiceSettings.accountNumber || ""} onChange={(e) => setInvoiceSettings({ accountNumber: e.target.value })} />
+          </Field>
+          <Field label="Default payment method shown on invoice">
+            <input className={inputCls} value={invoiceSettings.paymentMethod || ""} onChange={(e) => setInvoiceSettings({ paymentMethod: e.target.value })} placeholder="Transfer" />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Default due-date wording (shown unless the sale is on credit)">
+            <input className={inputCls} value={invoiceSettings.dueTerms || ""} onChange={(e) => setInvoiceSettings({ dueTerms: e.target.value })} placeholder="On Receipt" />
+          </Field>
+          <Field label="Standard notes / terms (optional, printed on every invoice)">
+            <input className={inputCls} value={invoiceSettings.notes || ""} onChange={(e) => setInvoiceSettings({ notes: e.target.value })} />
+          </Field>
+        </div>
       </Panel>
 
       <Panel title="Appearance" eyebrow="Each role can carry its own brand colors and light/dark mode">

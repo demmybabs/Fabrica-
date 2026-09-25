@@ -26,6 +26,7 @@ create table app_settings (
   vat_rate numeric default 7.5,
   receivables_days numeric default 30,
   payables_days numeric default 30,
+  invoice_settings jsonb default '{"address":"","phone":"","email":"","taxId":"","bankName":"","accountName":"","accountNumber":"","paymentMethod":"Transfer","dueTerms":"On Receipt","notes":""}'::jsonb,
   constraint single_row check (id = 1)
 );
 insert into app_settings (id) values (1);

@@ -1,0 +1,2 @@
+alter table app_settings add column if not exists invoice_settings jsonb default '{"address":"","phone":"","email":"","taxId":"","bankName":"","accountName":"","accountNumber":"","paymentMethod":"Transfer","dueTerms":"On Receipt","notes":""}'::jsonb;
+update app_settings set invoice_settings = '{"address":"","phone":"","email":"","taxId":"","bankName":"","accountName":"","accountNumber":"","paymentMethod":"Transfer","dueTerms":"On Receipt","notes":""}'::jsonb where invoice_settings is null;
