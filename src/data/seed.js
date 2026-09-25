@@ -206,6 +206,7 @@ export function buildSeed() {
     operatingExpenses: [],
     fixedAssets: [],
     equityTransactions: [],
+    loans: [],
     chartOfAccounts: [],
     customUnits: {},
     activeRole: "owner",
@@ -213,8 +214,11 @@ export function buildSeed() {
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
     vatRate: 7.5,
+    receivablesDays: 30,
+    payablesDays: 30,
     segments: ["Retail", "Wholesale"],
     wholesaleSubCategories: ["Supermarket", "Distributor", "Grocery store", "Pharmacy"],
+    expenseCategories: ["Rent", "Salaries & wages", "Utilities", "Transport & logistics", "Marketing", "Professional fees", "Repairs & maintenance", "Insurance", "Bank charges", "Other"],
   };
 }
 
@@ -231,6 +235,7 @@ export function buildEmpty() {
     operatingExpenses: [],
     fixedAssets: [],
     equityTransactions: [],
+    loans: [],
     chartOfAccounts: [],
     customUnits: {},
     activeRole: "owner",
@@ -238,8 +243,11 @@ export function buildEmpty() {
     branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
     currency: { code: "NGN", symbol: "₦" },
     vatRate: 7.5,
+    receivablesDays: 30,
+    payablesDays: 30,
     segments: ["Retail", "Wholesale"],
     wholesaleSubCategories: ["Supermarket", "Distributor", "Grocery store", "Pharmacy"],
+    expenseCategories: ["Rent", "Salaries & wages", "Utilities", "Transport & logistics", "Marketing", "Professional fees", "Repairs & maintenance", "Insurance", "Bank charges", "Other"],
   };
 }
 

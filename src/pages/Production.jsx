@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
-import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation } from "../lib/calc";
+import { materialLedger, productionRunCosts, suggestInputsForOutputs, estimateIngredientAllocation, sortByDateDesc } from "../lib/calc";
 import { allUnits, toBase, formatQuantity } from "../lib/uom";
 import { postJournalEntry, journalForProductionCount } from "../lib/ledger";
 import Panel from "../components/Panel";
@@ -253,7 +253,7 @@ export default function Production() {
           on the shelf is a signal worth investigating, not an automatic correction.
         </p>
         <div className="space-y-4">
-          {[...data.productionRuns].reverse().map((run) => {
+          {sortByDateDesc(data.productionRuns, "date").map((run) => {
             const { totalRunCost, outputs: outs, materialCost, overheadTotal } = productionRunCosts(run, ledger, productById);
             const isExpanded = expandedRun === run.id;
             const allocation = isExpanded ? estimateIngredientAllocation(run, productById) : null;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
-import { overviewMetrics, salesTrend, topProducts, paymentModeBreakdown, givingSummary } from "../lib/calc";
+import { overviewMetrics, salesTrend, topProducts, paymentModeBreakdown, givingSummary, debtorsList, openSaleOrReturnOrders } from "../lib/calc";
 import StatCard from "../components/StatCard";
 import DateRangeFilter from "../components/DateRangeFilter";
 import Panel from "../components/Panel";
@@ -19,6 +19,8 @@ export default function SalesDashboard() {
   const byUnits = topProducts(data, range, "quantity", 5);
   const paymentModes = paymentModeBreakdown(data, range);
   const giving = givingSummary(data, range);
+  const debtors = debtorsList(data);
+  const openSOR = openSaleOrReturnOrders(data);
   const symbol = data.currency?.symbol || "₦";
   const axisMoney = (v) => {
     const n = Number(v) || 0;
@@ -43,6 +45,7 @@ export default function SalesDashboard() {
         <StatCard label="Gross profit" value={money(m.grossProfit)} sub={`${m.grossMarginPct.toFixed(1)}% margin`} tone="brass" />
         <StatCard label="VAT collected" value={money(m.vatCollected)} />
         <StatCard label="Receivables outstanding" value={money(m.receivables)} sub={m.onCredit > 0 ? `${money(m.onCredit)} on credit` : undefined} tone="rust" />
+        <StatCard label="Sale or Return — open" value={money(m.saleOrReturnOpenValue)} sub={openSOR.length > 0 ? `${openSOR.length} order${openSOR.length === 1 ? "" : "s"} not yet closed` : "none open"} tone={m.saleOrReturnOpenValue > 0 ? "rust" : "ink"} />
         <StatCard label="Given away (ad / charity)" value={`${giving.units.toLocaleString()} units`} sub={giving.value > 0 ? `${money(giving.value)} in cost` : "none in range"} />
         <StatCard label="Active customers" value={m.activeCustomers} tone="moss" />
         <StatCard label="Avg order value" value={money(m.orderCount > 0 ? m.totalRevenue / m.orderCount : 0)} />
@@ -126,6 +129,70 @@ export default function SalesDashboard() {
             {byUnits.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-ink-500">No sales yet.</td></tr>}
           </tbody>
         </table>
+      </Panel>
+
+      <Panel title="Debtors" eyebrow="Every order still owing money, most urgent first — due automatically once the due date arrives, Overdue more than 5 days past it">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead>
+              <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
+                <th className="py-1.5 pr-4">Customer</th>
+                <th className="py-1.5 pr-4">Invoice</th>
+                <th className="py-1.5 pr-4 text-right">Owed</th>
+                <th className="py-1.5 pr-4">Due</th>
+                <th className="py-1.5 pr-4">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {debtors.map((d) => (
+                <tr key={d.order.id} className="text-ink-200 border-b border-ink-700/60">
+                  <td className="py-1.5 pr-4">{d.customerName}</td>
+                  <td className="py-1.5 pr-4 chip text-ink-500">{d.invoiceNumber || "—"}</td>
+                  <td className="py-1.5 pr-4 text-right chip text-[var(--accent)]">{money(d.balance)}</td>
+                  <td className="py-1.5 pr-4 chip">{d.dueDate}</td>
+                  <td className="py-1.5 pr-4">
+                    <span className={`chip px-2 py-0.5 rounded border ${
+                      d.status === "overdue" ? "border-red-400/50 text-red-400" :
+                      d.status === "due" ? "border-[var(--accent)]/50 text-[var(--accent)]" :
+                      "border-ink-700 text-ink-400"
+                    }`}>
+                      {d.status === "overdue" ? "Overdue" : d.status === "due" ? "Due" : "Not yet due"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {debtors.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-ink-500">No open receivables — everyone's paid up.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel title="Sale or Return — open" eyebrow="Goods out on consignment, not yet billed — closing one records what was kept vs. returned">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead>
+              <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
+                <th className="py-1.5 pr-4">Customer</th>
+                <th className="py-1.5 pr-4 text-right">Value</th>
+                <th className="py-1.5 pr-4 text-right">Products</th>
+                <th className="py-1.5 pr-4">Date</th>
+                <th className="py-1.5 pr-4">Returned so far</th>
+              </tr>
+            </thead>
+            <tbody>
+              {openSOR.map((r) => (
+                <tr key={r.order.id} className="text-ink-200 border-b border-ink-700/60">
+                  <td className="py-1.5 pr-4">{r.customerName}</td>
+                  <td className="py-1.5 pr-4 text-right chip text-[var(--accent)]">{money(r.value)}</td>
+                  <td className="py-1.5 pr-4 text-right chip">{r.productCount}</td>
+                  <td className="py-1.5 pr-4 chip">{r.date}</td>
+                  <td className="py-1.5 pr-4 chip">{r.anyReturned ? "Yes" : "No"}</td>
+                </tr>
+              ))}
+              {openSOR.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-ink-500">No open Sale-or-Return orders.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </Panel>
     </div>
   );

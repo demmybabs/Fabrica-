@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
-import { salesWithMargin, finishedGoodsInventory, orderPayments, orderPaidTotal, orderCreditTotal } from "../lib/calc";
+import { salesWithMargin, finishedGoodsInventory, orderPayments, orderPaidTotal, orderCreditTotal, debtDueDate, debtStatus, sortByDateDesc } from "../lib/calc";
 import { makeUniqueInvoiceNumber } from "../lib/invoiceNumber";
 import { postJournalEntry, journalForSale, journalForPaymentReceived } from "../lib/ledger";
 import Panel from "../components/Panel";
@@ -18,22 +18,29 @@ export default function Sales() {
   const confirmAction = useConfirm();
   const [open, setOpen] = useState(false);
   const [customerId, setCustomerId] = useState("");
+  const [branch, setBranch] = useState("");
   const [date, setDate] = useState("");
   const [items, setItems] = useState([{ ...blankItem }]);
   const [payments, setPayments] = useState([{ ...blankPayment }]);
   const [vatRate, setVatRate] = useState(data.vatRate ?? 7.5);
+  const [receivablesDays, setReceivablesDays] = useState(data.receivablesDays ?? 30);
+  const [isSaleOrReturn, setIsSaleOrReturn] = useState(false);
   const [formError, setFormError] = useState("");
   const [paymentDrafts, setPaymentDrafts] = useState({});
+  const [returnDrafts, setReturnDrafts] = useState({});
+  const [closingOrderId, setClosingOrderId] = useState(null);
 
   const lines = salesWithMargin(data);
   const inv = finishedGoodsInventory(data);
   const onHandByProduct = Object.fromEntries(inv.map((r) => [r.product.id, r.qtyOnHand]));
 
   // Group flattened lines back into orders for a cleaner log view.
-  const orderIds = [...new Set(data.salesOrders.map((o) => o.id))].reverse();
+  const orderIds = [...new Set(sortByDateDesc(data.salesOrders, "date").map((o) => o.id))];
   const orderById = Object.fromEntries(data.salesOrders.map((o) => [o.id, o]));
   const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
   const productById = Object.fromEntries(data.products.map((p) => [p.id, p]));
+  const selectedCustomer = customerById[customerId];
+  const customerBranches = selectedCustomer?.branches || [];
 
   const updateItem = (i, patch) => setItems(items.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const onProductSelect = (i, productId) => {
@@ -119,7 +126,7 @@ export default function Sales() {
       .filter((p) => p.amount !== "" && parseFloat(p.amount) > 0)
       .map((p) => ({ amount: parseFloat(p.amount) || 0, mode: p.mode, date: paymentDate }));
     const customer = customerById[customerId];
-    const invoiceNumber = makeUniqueInvoiceNumber(customer, paymentDate, data.salesOrders.map((o) => o.invoiceNumber));
+    const invoiceNumber = makeUniqueInvoiceNumber(customer, paymentDate, data.salesOrders.map((o) => o.invoiceNumber), branch || undefined);
     const soldItems = items
       .filter((i) => i.productId && i.quantity)
       .map((i) => ({
@@ -130,21 +137,35 @@ export default function Sales() {
       }));
     const result = await add("salesOrders", {
       customerId,
+      branch: branch || undefined,
       date: paymentDate,
       invoiceNumber,
       vatRate: parseFloat(vatRate) || 0,
-      vatAmount: Math.round(vatAmount * 100) / 100,
+      // A Sale-or-Return isn't billed at all yet — no revenue, no VAT —
+      // until it's closed, so nothing is charged here; closing it fills
+      // this in for real.
+      vatAmount: isSaleOrReturn ? 0 : Math.round(vatAmount * 100) / 100,
+      // Only meaningful when part of the order is on credit — the number
+      // of days the customer has to pay before it's due, defaulting to
+      // the business-wide setting but overridable per order.
+      receivablesDays: totalEnteredCredit > 0.004 ? (parseFloat(receivablesDays) || 30) : undefined,
       // payments is the real source of truth — a list, not a single
       // amount/mode, so a sale paid partly by POS and partly by cash at
       // the same checkout is recorded as two lines, not one overwriting
       // the other. A "Credit" line here just documents that part was
-      // deliberately extended to the customer — see orderPaidTotal.
-      payments: enteredPayments,
+      // deliberately extended to the customer — see orderPaidTotal. A
+      // Sale-or-Return collects nothing upfront — payment (if any) is
+      // recorded once the sale is closed and it's clear what's owed.
+      payments: isSaleOrReturn ? [] : enteredPayments,
+      saleType: isSaleOrReturn ? "sale_or_return" : undefined,
+      closed: isSaleOrReturn ? false : undefined,
       items: soldItems,
     });
-    // Post to the ledger only after the sale itself is safely saved —
-    // a journal-posting hiccup should never be mistaken for a lost sale.
-    if (result?.ok !== false) {
+    // Post to the ledger only after the sale itself is safely saved — a
+    // journal-posting hiccup should never be mistaken for a lost sale. A
+    // Sale-or-Return posts nothing yet: the goods have left, but nothing
+    // has been earned or billed until the sale is closed.
+    if (result?.ok !== false && !isSaleOrReturn) {
       const costByProduct = Object.fromEntries(inv.map((r) => [r.product.id, r.avgCostPerUnit]));
       let cogsSold = 0;
       let cogsGiveaway = 0;
@@ -165,7 +186,36 @@ export default function Sales() {
         }
       ));
     }
-    setCustomerId(""); setDate(""); setItems([{ ...blankItem }]); setPayments([{ ...blankPayment }]); setVatRate(data.vatRate ?? 7.5); setFormError(""); setOpen(false);
+    setCustomerId(""); setBranch(""); setDate(""); setItems([{ ...blankItem }]); setPayments([{ ...blankPayment }]); setVatRate(data.vatRate ?? 7.5); setReceivablesDays(data.receivablesDays ?? 30); setIsSaleOrReturn(false); setFormError(""); setOpen(false);
+  };
+
+  // Closing a Sale-or-Return — the user says how many of each item came
+  // back; the rest is assumed kept and becomes billable right now. This
+  // is the moment revenue, COGS, and VAT are actually recognized.
+  const closeOrReturn = async (order) => {
+    const draft = returnDrafts[order.id] || {};
+    const updatedItems = (order.items || []).map((item) => {
+      const returned = Math.max(0, Math.min(item.quantity, parseFloat(draft[item.productId] ?? item.quantityReturned ?? 0) || 0));
+      return { ...item, quantityReturned: returned };
+    });
+    const keptSubtotal = updatedItems.reduce((s, i) => s + (i.isGiveaway ? 0 : Math.max(0, i.quantity - (i.quantityReturned || 0)) * i.unitPrice), 0);
+    const closedVatAmount = Math.round(keptSubtotal * ((order.vatRate || 0) / 100) * 100) / 100;
+    const anyReturned = updatedItems.some((i) => (i.quantityReturned || 0) > 0);
+    const proceed = await confirmAction(
+      anyReturned
+        ? `Close this sale? ${money(keptSubtotal + closedVatAmount)} becomes billable to the customer for what they kept; returned units go back into Finished Goods inventory.`
+        : `Close this sale? Nothing was marked as returned, so the full ${money(keptSubtotal + closedVatAmount)} becomes billable.`,
+      { confirmLabel: "Close sale" }
+    );
+    if (!proceed) return;
+    await update("salesOrders", order.id, {
+      items: updatedItems,
+      closed: true,
+      closedDate: new Date().toISOString().slice(0, 10),
+      vatAmount: closedVatAmount,
+    });
+    setReturnDrafts((d) => { const next = { ...d }; delete next[order.id]; return next; });
+    setClosingOrderId(null);
   };
 
   const updatePaymentDraft = (orderId, patch) => setPaymentDrafts((d) => ({ ...d, [orderId]: { ...d[orderId], ...patch } }));
@@ -178,19 +228,20 @@ export default function Sales() {
     if (!draft?.amount) return;
     const amount = parseFloat(draft.amount) || 0;
     const mode = draft.mode || paymentModes[0];
+    const paymentDate = draft.date || new Date().toISOString().slice(0, 10);
     const msg = mode === "Credit"
       ? `Extend ${money(amount)} more of this order on credit (not counted as received)? This updates the balance owed.`
-      : `Record ${money(amount)} received via ${mode} for this order? This updates what's owed.`;
+      : `Record ${money(amount)} received via ${mode} on ${paymentDate} for this order? This updates what's owed.`;
     const proceed = await confirmAction(msg, { confirmLabel: "Confirm" });
     if (!proceed) return;
     const existing = orderPayments(order, orderTotalForOrder);
-    const newPayment = { amount, mode, date: new Date().toISOString().slice(0, 10) };
+    const newPayment = { amount, mode, date: paymentDate };
     await update("salesOrders", order.id, { payments: [...existing, newPayment] });
     // A genuine (non-Credit) payment moves cash in and shrinks the
     // receivable booked at sale time — a Credit line only documents
     // intent and doesn't move money, so it isn't posted.
     if (mode !== "Credit") {
-      await postJournalEntry(add, journalForPaymentReceived(order, amount));
+      await postJournalEntry(add, journalForPaymentReceived(order, amount, paymentDate));
     }
     setPaymentDrafts((d) => { const next = { ...d }; delete next[order.id]; return next; });
   };
@@ -214,11 +265,19 @@ export default function Sales() {
           <form onSubmit={submit} className="space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Customer">
-                <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
+                <select className={inputCls} value={customerId} onChange={(e) => { setCustomerId(e.target.value); setBranch(""); }} required>
                   <option value="">Select…</option>
                   {data.customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </Field>
+              {customerBranches.length > 0 && (
+                <Field label="Delivering to branch">
+                  <select className={inputCls} value={branch} onChange={(e) => setBranch(e.target.value)} required>
+                    <option value="">Select a branch…</option>
+                    {customerBranches.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </Field>
+              )}
               <Field label="Date"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
             </div>
 
@@ -254,6 +313,14 @@ export default function Sales() {
               </div>
             </div>
 
+            <label className="flex items-start gap-2.5 text-sm text-ink-300 bg-ink-800 border border-ink-700 rounded-lg px-4 py-3">
+              <input type="checkbox" className="mt-0.5" checked={isSaleOrReturn} onChange={(e) => setIsSaleOrReturn(e.target.checked)} />
+              <span>
+                <span className="text-ink-100">Sale or Return</span> — goods go out on consignment, nothing is billed or collected now.
+                No revenue or VAT is recognized until you close the sale and say what actually sold vs. came back.
+              </span>
+            </label>
+
             <div>
               <div className="chip text-ink-400 uppercase mb-2">VAT</div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -266,44 +333,61 @@ export default function Sales() {
               </div>
             </div>
 
-            <div>
-              <div className="chip text-ink-400 uppercase mb-2">
-                How the customer is paying — add a line per method if it's split (e.g. part POS, part cash). Select "Credit" for any part left on the customer's account, not paid now.
+            {isSaleOrReturn ? (
+              <div className="chip text-ink-400 bg-ink-800 border border-ink-700 rounded-lg px-4 py-3 leading-relaxed normal-case">
+                No payment is collected when a Sale-or-Return order is created. Once you close it from the orders list
+                below and say what was kept vs. returned, it becomes billable and you can record how the customer pays.
               </div>
-              <div className="space-y-2">
-                {payments.map((row, i) => (
-                  <div key={i} className="grid grid-cols-6 gap-2 items-center">
-                    <input
-                      type="number" min="0" step="0.01"
-                      className={`${inputCls} col-span-3`}
-                      placeholder="amount"
-                      value={row.amount}
-                      onChange={(e) => updatePayment(i, { amount: e.target.value })}
-                    />
-                    <select className={`${inputCls} col-span-2`} value={row.mode} onChange={(e) => updatePayment(i, { mode: e.target.value })}>
-                      {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                    {payments.length > 1 && (
-                      <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => setPayments(payments.filter((_, idx) => idx !== i))}>remove</button>
+            ) : (
+              <div>
+                <div className="chip text-ink-400 uppercase mb-2">
+                  How the customer is paying — add a line per method if it's split (e.g. part POS, part cash). Select "Credit" for any part left on the customer's account, not paid now.
+                </div>
+                <div className="space-y-2">
+                  {payments.map((row, i) => (
+                    <div key={i} className="grid grid-cols-6 gap-2 items-center">
+                      <input
+                        type="number" min="0" step="0.01"
+                        className={`${inputCls} col-span-3`}
+                        placeholder="amount"
+                        value={row.amount}
+                        onChange={(e) => updatePayment(i, { amount: e.target.value })}
+                      />
+                      <select className={`${inputCls} col-span-2`} value={row.mode} onChange={(e) => updatePayment(i, { mode: e.target.value })}>
+                        {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                      {payments.length > 1 && (
+                        <button type="button" className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={() => setPayments(payments.filter((_, idx) => idx !== i))}>remove</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                  <button type="button" className={btnGhostCls} onClick={() => setPayments([...payments, { ...blankPayment }])}>+ add payment method</button>
+                  <span className="chip text-ink-400">
+                    {totalEnteredCredit > 0.004 && balance > 0.004 ? (
+                      <>On <span className="text-[var(--accent)]">credit</span> — balance of {money(balance)}</>
+                    ) : balance > 0.004 ? (
+                      <>Balance — becomes a <span className="text-[var(--accent)]">receivable</span> of {money(balance)}</>
+                    ) : totalEnteredPayments > 0 ? (
+                      "Fully paid"
+                    ) : (
+                      "Leave amounts blank to record this as fully paid"
                     )}
+                  </span>
+                </div>
+                {totalEnteredCredit > 0.004 && (
+                  <div className="mt-3">
+                    <Field label="Receivables days — how long the customer has to pay this off">
+                      <input type="number" min="0" step="1" className={`${inputCls} w-32`} value={receivablesDays} onChange={(e) => setReceivablesDays(e.target.value)} />
+                    </Field>
+                    <span className="chip text-ink-500 mt-1 block">
+                      Due {(() => { const d = new Date(`${(date || new Date().toISOString().slice(0, 10))}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + (parseInt(receivablesDays, 10) || 0)); return d.toISOString().slice(0, 10); })()}
+                    </span>
                   </div>
-                ))}
+                )}
               </div>
-              <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
-                <button type="button" className={btnGhostCls} onClick={() => setPayments([...payments, { ...blankPayment }])}>+ add payment method</button>
-                <span className="chip text-ink-400">
-                  {totalEnteredCredit > 0.004 && balance > 0.004 ? (
-                    <>On <span className="text-[var(--accent)]">credit</span> — balance of {money(balance)}</>
-                  ) : balance > 0.004 ? (
-                    <>Balance — becomes a <span className="text-[var(--accent)]">receivable</span> of {money(balance)}</>
-                  ) : totalEnteredPayments > 0 ? (
-                    "Fully paid"
-                  ) : (
-                    "Leave amounts blank to record this as fully paid"
-                  )}
-                </span>
-              </div>
-            </div>
+            )}
 
             {formError && (
               <div className="chip px-3 py-2 rounded border border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]">
@@ -339,33 +423,82 @@ export default function Sales() {
                     <span className="chip text-ink-500">{order.date}</span>
                     <span className="text-sm text-ink-100">{customerById[order.customerId]?.name || "—"}</span>
                     {order.invoiceNumber && <span className="chip text-ink-500">{order.invoiceNumber}</span>}
+                    {order.branch && <span className="chip text-ink-400">→ {order.branch}</span>}
                     {hasGiveaway && <span className="chip text-brass-400">includes giveaway</span>}
+                    {order.saleType === "sale_or_return" && (
+                      <span className={`chip px-2 py-0.5 rounded border ${order.closed ? "border-ink-700 text-ink-500" : "border-[var(--accent)]/50 text-[var(--accent)]"}`}>
+                        Sale or Return {order.closed ? "· closed" : "· open"}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 flex-wrap">
-                    <span className="chip text-ink-300">revenue {money(revenue)}</span>
+                    {(order.saleType !== "sale_or_return" || order.closed) && <span className="chip text-ink-300">revenue {money(revenue)}</span>}
                     {order.vatAmount > 0 && <span className="chip text-ink-400">VAT {money(order.vatAmount)}</span>}
-                    <span className="chip text-moss-400">margin {money(margin)}</span>
-                    {credit > 0.004 && orderBalance > 0.004 ? (
+                    {(order.saleType !== "sale_or_return" || order.closed) && <span className="chip text-moss-400">margin {money(margin)}</span>}
+                    {order.saleType === "sale_or_return" && !order.closed ? null : credit > 0.004 && orderBalance > 0.004 ? (
                       <span className="chip text-[var(--accent)]">on credit — balance {money(orderBalance)}</span>
                     ) : orderBalance > 0.004 ? (
                       <span className="chip text-[var(--accent)]">receivable {money(orderBalance)}</span>
                     ) : (
                       <span className="chip text-ink-500">fully paid</span>
                     )}
+                    {orderBalance > 0.004 && (() => {
+                      const due = debtDueDate(order.date, order.receivablesDays, data.receivablesDays ?? 30);
+                      const status = debtStatus(due);
+                      return (
+                        <span className={`chip ${status === "overdue" ? "text-red-400" : status === "due" ? "text-[var(--accent)]" : "text-ink-500"}`}>
+                          due {due}{status === "overdue" ? " · Overdue" : status === "due" ? " · Due" : ""}
+                        </span>
+                      );
+                    })()}
                     <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
                       if (await confirmAction("Remove this order? This can't be undone.", { danger: true, confirmLabel: "Remove" })) remove("salesOrders", orderId);
                     }}>remove order</button>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 mb-3">
-                  <span className="chip text-ink-500">Payments:</span>
-                  {payments.map((p, idx) => (
-                    <span key={idx} className={`chip bg-ink-900 border rounded px-2 py-0.5 ${p.mode === "Credit" ? "border-[var(--accent)]/50 text-[var(--accent)]" : "border-ink-700 text-ink-300"}`}>
-                      {money(p.amount)} · {p.mode}{p.date ? ` · ${p.date}` : ""}
-                    </span>
-                  ))}
-                </div>
+                {(order.saleType !== "sale_or_return" || order.closed) && (
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <span className="chip text-ink-500">Payments:</span>
+                    {payments.map((p, idx) => (
+                      <span key={idx} className={`chip bg-ink-900 border rounded px-2 py-0.5 ${p.mode === "Credit" ? "border-[var(--accent)]/50 text-[var(--accent)]" : "border-ink-700 text-ink-300"}`}>
+                        {money(p.amount)} · {p.mode}{p.date ? ` · ${p.date}` : ""}
+                      </span>
+                    ))}
+                    {payments.length === 0 && <span className="chip text-ink-500">none yet</span>}
+                  </div>
+                )}
+
+                {order.saleType === "sale_or_return" && !order.closed && (
+                  <div className="mb-3 bg-ink-900/40 border border-ink-700 rounded-lg p-3">
+                    {closingOrderId === orderId ? (
+                      <div className="space-y-2">
+                        <div className="chip text-ink-400 uppercase mb-1">How many of each came back? The rest is assumed kept.</div>
+                        {(order.items || []).map((item) => (
+                          <div key={item.productId} className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-ink-200">{productById[item.productId] ? `${productById[item.productId].name} · ${productById[item.productId].packSize}` : "—"} <span className="chip text-ink-500">shipped {item.quantity}</span></span>
+                            <input
+                              type="number" min="0" max={item.quantity} step="1"
+                              className={`${inputCls} w-24`}
+                              placeholder="returned"
+                              value={returnDrafts[orderId]?.[item.productId] ?? item.quantityReturned ?? ""}
+                              onChange={(e) => setReturnDrafts((d) => ({ ...d, [orderId]: { ...d[orderId], [item.productId]: e.target.value } }))}
+                            />
+                          </div>
+                        ))}
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button type="button" className={btnGhostCls} onClick={() => setClosingOrderId(null)}>Cancel</button>
+                          <button type="button" className={btnCls} onClick={() => closeOrReturn(order)}>Close sale</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="chip text-ink-400">Out with the customer on consignment — not yet billed.</span>
+                        <button type="button" className={btnGhostCls} onClick={() => setClosingOrderId(orderId)}>Close sale — record returns</button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {orderBalance > 0.004 && (
                   <div className="mb-3">
@@ -385,6 +518,13 @@ export default function Sales() {
                       >
                         {paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
                       </select>
+                      <input
+                        type="date"
+                        className={`${inputCls} w-40`}
+                        title="Date the payment came in"
+                        value={paymentDrafts[orderId]?.date ?? ""}
+                        onChange={(e) => updatePaymentDraft(orderId, { date: e.target.value })}
+                      />
                       <button type="button" className="chip text-[var(--accent)]" onClick={() => addPayment(order, total)}>save</button>
                     </div>
                   </div>
@@ -407,8 +547,9 @@ export default function Sales() {
                           <td className="py-1.5 pr-4">
                             {l.product ? `${l.product.name} · ${l.product.packSize}` : "—"}
                             {l.isGiveaway && <span className="chip text-brass-400 ml-2">giveaway</span>}
+                            {l.isSaleOrReturn && l.returnedQty > 0 && <span className="chip text-[var(--accent)] ml-2">{l.returnedQty} returned</span>}
                           </td>
-                          <td className="py-1.5 pr-4 text-right chip">{l.quantity}</td>
+                          <td className="py-1.5 pr-4 text-right chip">{l.isSaleOrReturn && l.closed ? `${l.keptQty} kept` : l.quantity}</td>
                           <td className="py-1.5 pr-4 text-right chip">{l.isGiveaway ? "no charge" : money(l.unitPrice)}</td>
                           <td className="py-1.5 pr-4 text-right chip text-ink-400">{money(l.costPerUnit)}</td>
                           <td className="py-1.5 pr-4 text-right chip text-moss-400">{money(l.margin)} <span className="text-ink-500">({l.marginPct.toFixed(0)}%)</span></td>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
-import { materialLedger, topMaterialsBySpend, topSuppliersBySpend, expiringBatches, inRange } from "../lib/calc";
+import { materialLedger, topMaterialsBySpend, topSuppliersBySpend, expiringBatches, inRange, creditorsList } from "../lib/calc";
 import StatCard from "../components/StatCard";
 import DateRangeFilter from "../components/DateRangeFilter";
 import Panel from "../components/Panel";
@@ -16,6 +16,7 @@ export default function SupplyDashboard() {
   const topMaterials = topMaterialsBySpend(data, 6);
   const topSuppliers = topSuppliersBySpend(data, 6);
   const expiring = expiringBatches(data, 30);
+  const creditors = creditorsList(data);
   const symbol = data.currency?.symbol || "₦";
   const axisMoney = (v) => {
     const n = Number(v) || 0;
@@ -107,6 +108,42 @@ export default function SupplyDashboard() {
             {expiring.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-ink-500">Nothing expiring soon.</td></tr>}
           </tbody>
         </table>
+      </Panel>
+
+      <Panel title="Creditors" eyebrow="Every delivery still owed for, most urgent first — due automatically once the due date arrives, Overdue more than 5 days past it">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead>
+              <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
+                <th className="py-1.5 pr-4">Supplier</th>
+                <th className="py-1.5 pr-4">Item</th>
+                <th className="py-1.5 pr-4 text-right">Owed</th>
+                <th className="py-1.5 pr-4">Due</th>
+                <th className="py-1.5 pr-4">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {creditors.map((c) => (
+                <tr key={c.batch.id} className="text-ink-200 border-b border-ink-700/60">
+                  <td className="py-1.5 pr-4">{c.supplierName}</td>
+                  <td className="py-1.5 pr-4 chip text-ink-500">{c.itemName}</td>
+                  <td className="py-1.5 pr-4 text-right chip text-[var(--accent)]">{money(c.balance)}</td>
+                  <td className="py-1.5 pr-4 chip">{c.dueDate}</td>
+                  <td className="py-1.5 pr-4">
+                    <span className={`chip px-2 py-0.5 rounded border ${
+                      c.status === "overdue" ? "border-red-400/50 text-red-400" :
+                      c.status === "due" ? "border-[var(--accent)]/50 text-[var(--accent)]" :
+                      "border-ink-700 text-ink-400"
+                    }`}>
+                      {c.status === "overdue" ? "Overdue" : c.status === "due" ? "Due" : "Not yet due"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {creditors.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-ink-500">No open payables — everything's settled.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </Panel>
     </div>
   );

@@ -35,6 +35,18 @@ export default function Overview() {
   const ledger = materialLedger(data);
   const inv = finishedGoodsInventory(data);
   const salesInRange = salesWithMargin(data).filter((s) => inRange(s.date, range.from, range.to));
+  // One row per SALE, not per line item — a checkout with 3 products
+  // should read as one order, not three separate rows in the feed.
+  const recentOrders = Object.values(
+    salesInRange.reduce((acc, s) => {
+      if (!acc[s.orderId]) acc[s.orderId] = { orderId: s.orderId, date: s.date, customer: s.customer, itemCount: 0, quantity: 0, revenue: 0, margin: 0 };
+      acc[s.orderId].itemCount += 1;
+      acc[s.orderId].quantity += s.quantity;
+      acc[s.orderId].revenue += s.revenue;
+      acc[s.orderId].margin += s.margin;
+      return acc;
+    }, {})
+  ).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8);
   const trend = salesTrend(data, range, groupBy);
   const bySegment = performanceByAttribute(data, "segment");
   const awaitingCount = runsAwaitingCount(data);
@@ -113,6 +125,7 @@ export default function Overview() {
         <StatCard label="Inventory value" value={money(m.inventoryValue)} sub="raw + finished, current" />
         <StatCard label="Payables to suppliers" value={money(m.payables)} tone="rust" />
         <StatCard label="Receivables from customers" value={money(m.receivables)} sub={m.onCredit > 0 ? `${money(m.onCredit)} explicitly on credit` : undefined} tone="rust" />
+        <StatCard label="Sale or Return — open" value={money(m.saleOrReturnOpenValue)} sub="not yet closed" tone={m.saleOrReturnOpenValue > 0 ? "rust" : "ink"} />
         <StatCard label="VAT collected in range" value={money(m.vatCollected)} />
         <StatCard label="Given away (ad / charity)" value={`${m.givingUnits.toLocaleString()} units`} sub={m.givingValue > 0 ? `${money(m.givingValue)} in cost, in range` : "none in range"} />
         <StatCard label="Value lost — production" value={money(m.productionLossValue)} sub={m.productionLossUnits > 0 ? `${m.productionLossUnits} units, in range` : "none in range"} tone="rust" />
@@ -216,24 +229,24 @@ export default function Overview() {
               <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                 <th className="py-2 pr-4">Date</th>
                 <th className="py-2 pr-4">Customer</th>
-                <th className="py-2 pr-4">Product</th>
+                <th className="py-2 pr-4">Items</th>
                 <th className="py-2 pr-4 text-right">Qty</th>
                 <th className="py-2 pr-4 text-right">Revenue</th>
                 <th className="py-2 pr-4 text-right">Margin</th>
               </tr>
             </thead>
             <tbody>
-              {salesInRange.slice(-8).reverse().map((s) => (
-                <tr key={s.id} className="border-b border-ink-700/60 text-ink-200">
-                  <td className="py-2 pr-4 chip">{s.date}</td>
-                  <td className="py-2 pr-4">{s.customer?.name || "—"}</td>
-                  <td className="py-2 pr-4">{s.product ? `${s.product.name} · ${s.product.packSize}` : "—"}</td>
-                  <td className="py-2 pr-4 text-right chip">{s.quantity}</td>
-                  <td className="py-2 pr-4 text-right chip">{money(s.revenue)}</td>
-                  <td className="py-2 pr-4 text-right chip text-moss-400">{money(s.margin)}</td>
+              {recentOrders.map((o) => (
+                <tr key={o.orderId} className="border-b border-ink-700/60 text-ink-200">
+                  <td className="py-2 pr-4 chip">{o.date}</td>
+                  <td className="py-2 pr-4">{o.customer?.name || "—"}</td>
+                  <td className="py-2 pr-4 text-ink-400 text-xs">{o.itemCount} product{o.itemCount === 1 ? "" : "s"}</td>
+                  <td className="py-2 pr-4 text-right chip">{o.quantity}</td>
+                  <td className="py-2 pr-4 text-right chip">{money(o.revenue)}</td>
+                  <td className="py-2 pr-4 text-right chip text-moss-400">{money(o.margin)}</td>
                 </tr>
               ))}
-              {salesInRange.length === 0 && (
+              {recentOrders.length === 0 && (
                 <tr><td colSpan={6} className="py-6 text-center text-ink-500">No sales in this range.</td></tr>
               )}
             </tbody>

@@ -19,13 +19,18 @@ export const CHART_OF_ACCOUNTS = [
   { code: "1300", name: "Fixed Assets, at cost", type: "asset", normalBalance: "debit" },
   { code: "1310", name: "Accumulated Depreciation", type: "asset", normalBalance: "credit" },
   { code: "2000", name: "Accounts Payable", type: "liability", normalBalance: "credit" },
+  { code: "2050", name: "Loans Payable", type: "liability", normalBalance: "credit" },
   { code: "2100", name: "VAT Payable", type: "liability", normalBalance: "credit" },
   { code: "2200", name: "Accrued Expenses", type: "liability", normalBalance: "credit" },
   { code: "3000", name: "Owner's Capital", type: "equity", normalBalance: "credit" },
   { code: "3100", name: "Owner's Drawings", type: "equity", normalBalance: "debit" },
+  { code: "3050", name: "Investor Capital", type: "equity", normalBalance: "credit" },
+  { code: "3150", name: "Investor Drawings / Redemptions", type: "equity", normalBalance: "debit" },
+  { code: "3200", name: "Opening Balance Equity", type: "equity", normalBalance: "credit" },
   { code: "4000", name: "Sales Revenue", type: "revenue", normalBalance: "credit" },
   { code: "5000", name: "Cost of Goods Sold", type: "cogs", normalBalance: "debit" },
   { code: "6000", name: "Operating Expenses", type: "expense", normalBalance: "debit" },
+  { code: "6100", name: "Interest Expense", type: "expense", normalBalance: "debit" },
   { code: "6200", name: "Depreciation Expense", type: "expense", normalBalance: "debit" },
   { code: "6300", name: "Marketing / CSR — Product Giveaways", type: "expense", normalBalance: "debit" },
   { code: "6400", name: "Production Loss", type: "expense", normalBalance: "debit" },
@@ -97,10 +102,12 @@ export function journalForSale(order, { subtotal, vatAmount, cashReceived, recei
 // A later payment collected against an already-saved order's balance —
 // "Credit" postpones the sale's own receivable but doesn't move cash, so
 // it's not posted here; a real payment (Cash/POS/Transfer) moves cash in
-// and shrinks that same receivable.
-export function journalForPaymentReceived(order, amount) {
+// and shrinks that same receivable. Posted on the date the money actually
+// came in (so it can be backdated to match reality), falling back to
+// today if none is given.
+export function journalForPaymentReceived(order, amount, date) {
   return {
-    date: new Date().toISOString().slice(0, 10),
+    date: date || new Date().toISOString().slice(0, 10),
     memo: `Payment received${order.invoiceNumber ? ` — ${order.invoiceNumber}` : ""}`,
     sourceType: "sale",
     sourceId: order.id,
@@ -121,6 +128,20 @@ export function journalForSupply(batch) {
     sourceId: batch.id,
     debits: { "1200": batch.totalCost },
     credits: { "1000": paid, "2000": payable },
+  };
+}
+
+// A later payment made against an already-saved delivery's balance —
+// cash out, shrinking the payable booked at delivery time. Posted on the
+// date the money actually went out, so it can be backdated.
+export function journalForPayablePayment(batch, amount, date) {
+  return {
+    date: date || new Date().toISOString().slice(0, 10),
+    memo: `Payment made — ${batch.itemName}`,
+    sourceType: "supply",
+    sourceId: batch.id,
+    debits: { "2000": amount },
+    credits: { "1000": amount },
   };
 }
 
@@ -189,15 +210,66 @@ export function journalForFixedAsset(asset) {
   };
 }
 
-// Owner's capital contribution or drawing.
+// Owner's capital contribution/drawing, or an outside investor's — kept
+// on separate accounts (3000/3100 for the owner, 3050/3150 for an
+// investor) so one person's stake is never mixed into another's.
 export function journalForEquity(tx) {
   const isContribution = tx.type === "contribution";
+  const isInvestor = tx.holder === "investor";
+  const capitalAccount = isInvestor ? "3050" : "3000";
+  const drawingAccount = isInvestor ? "3150" : "3100";
   return {
     date: tx.date,
-    memo: isContribution ? "Owner's capital contribution" : "Owner's drawing",
+    memo: isContribution
+      ? `${isInvestor ? "Investor" : "Owner's"} capital contribution`
+      : `${isInvestor ? "Investor drawing / redemption" : "Owner's drawing"}`,
     sourceType: "equity",
     sourceId: tx.id,
-    debits: isContribution ? { "1000": tx.amount } : { "3100": tx.amount },
-    credits: isContribution ? { "3000": tx.amount } : { "1000": tx.amount },
+    debits: isContribution ? { "1000": tx.amount } : { [drawingAccount]: tx.amount },
+    credits: isContribution ? { [capitalAccount]: tx.amount } : { "1000": tx.amount },
+  };
+}
+
+// A one-time opening cash balance — the actual cash/bank you're holding
+// the day you start using this ledger. Balanced against a dedicated
+// "Opening Balance Equity" account (the standard bookkeeping technique
+// for this) rather than Owner's Capital, so it's never mistaken for a
+// fresh contribution and never double-counts existing money as new.
+export function journalForOpeningBalance({ amount, date }) {
+  return {
+    date,
+    memo: "Opening cash balance",
+    sourceType: "opening_balance",
+    sourceId: null,
+    debits: { "1000": amount },
+    credits: { "3200": amount },
+  };
+}
+
+// A loan received — principal lands in cash, matched by a liability, not
+// equity: it carries a repayment obligation and (usually) interest,
+// neither of which describes an ownership stake.
+export function journalForLoan(loan) {
+  return {
+    date: loan.startDate,
+    memo: `Loan received — ${loan.lender}`,
+    sourceType: "loan",
+    sourceId: loan.id,
+    debits: { "1000": loan.principal },
+    credits: { "2050": loan.principal },
+  };
+}
+
+// A repayment against a loan — split between principal (shrinks the
+// liability) and interest (an expense, since it's the cost of borrowing,
+// not a return of the amount borrowed).
+export function journalForLoanRepayment(loan, { principalPortion, interestPortion }) {
+  return {
+    date: loan.repaymentDate || new Date().toISOString().slice(0, 10),
+    memo: `Loan repayment — ${loan.lender}`,
+    sourceType: "loan",
+    sourceId: loan.id,
+    debits: { "2050": principalPortion, "6100": interestPortion },
+    credits: { "1000": principalPortion + interestPortion },
   };
 }

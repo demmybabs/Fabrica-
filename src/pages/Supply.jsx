@@ -2,23 +2,24 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
-import { materialLedger, expiringBatches } from "../lib/calc";
+import { materialLedger, expiringBatches, debtDueDate, debtStatus, sortByDateDesc } from "../lib/calc";
 import { allUnits, formatQuantity, scaledUnitCost } from "../lib/uom";
-import { postJournalEntry, journalForSupply } from "../lib/ledger";
+import { postJournalEntry, journalForSupply, journalForPayablePayment } from "../lib/ledger";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
 const blankSupplier = { name: "", contact: "" };
-const blankDelivery = { supplierId: "", itemName: "", quantity: "", unit: "kg", totalCost: "", dateReceived: "", expiryDate: "", amountPaid: "", notes: "" };
+const blankDelivery = { supplierId: "", itemName: "", quantity: "", unit: "kg", totalCost: "", dateReceived: "", expiryDate: "", amountPaid: "", payablesDays: "", notes: "" };
 
 export default function Supply() {
-  const { data, add, remove } = useApp();
+  const { data, add, update, remove } = useApp();
   const money = useMoney();
   const confirmAction = useConfirm();
   const [openSupplier, setOpenSupplier] = useState(false);
   const [openDelivery, setOpenDelivery] = useState(false);
   const [supplierForm, setSupplierForm] = useState(blankSupplier);
   const [form, setForm] = useState(blankDelivery);
+  const [payDrafts, setPayDrafts] = useState({});
 
   const ledger = materialLedger(data);
   const units = allUnits(data.customUnits);
@@ -48,12 +49,27 @@ export default function Supply() {
       amountPaid,
       dateReceived,
       expiryDate: form.expiryDate || null,
+      payablesDays: amountPaid < totalCost ? (parseFloat(form.payablesDays) || data.payablesDays || 30) : undefined,
     });
     if (result?.ok !== false) {
       await postJournalEntry(add, journalForSupply({ id: result.id, itemName: form.itemName, totalCost, amountPaid, dateReceived }));
     }
     setForm(blankDelivery);
     setOpenDelivery(false);
+  };
+
+  const updatePayDraft = (batchId, patch) => setPayDrafts((d) => ({ ...d, [batchId]: { ...d[batchId], ...patch } }));
+  const payBatch = async (batch) => {
+    const draft = payDrafts[batch.id];
+    const amount = parseFloat(draft?.amount) || 0;
+    if (amount <= 0) return;
+    const payDate = draft?.date || new Date().toISOString().slice(0, 10);
+    const proceed = await confirmAction(`Record ${money(amount)} paid to the supplier on ${payDate} for this delivery? This updates what's owed.`, { confirmLabel: "Confirm" });
+    if (!proceed) return;
+    const newAmountPaid = (batch.amountPaid || 0) + amount;
+    await update("supplyBatches", batch.id, { amountPaid: newAmountPaid });
+    await postJournalEntry(add, journalForPayablePayment(batch, amount, payDate));
+    setPayDrafts((d) => { const next = { ...d }; delete next[batch.id]; return next; });
   };
 
   return (
@@ -135,6 +151,11 @@ export default function Supply() {
             <Field label="Amount paid so far">
               <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: e.target.value })} />
             </Field>
+            {form.totalCost && parseFloat(form.amountPaid || 0) < parseFloat(form.totalCost || 0) && (
+              <Field label="Payables days — how long you have to settle the balance">
+                <input type="number" min="0" step="1" className={inputCls} placeholder={String(data.payablesDays ?? 30)} value={form.payablesDays} onChange={(e) => setForm({ ...form, payablesDays: e.target.value })} />
+              </Field>
+            )}
             <Field label="Date received">
               <input type="date" className={inputCls} value={form.dateReceived} onChange={(e) => setForm({ ...form, dateReceived: e.target.value })} />
             </Field>
@@ -221,9 +242,9 @@ export default function Supply() {
         </div>
       </Panel>
 
-      <Panel title="Delivery log" eyebrow="Every batch received">
+      <Panel title="Delivery log" eyebrow="Every batch received — a delivery still owed for shows its due date and a way to pay it off">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
+          <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                 <th className="py-2 pr-4">Date</th>
@@ -232,21 +253,39 @@ export default function Supply() {
                 <th className="py-2 pr-4 text-right">Qty</th>
                 <th className="py-2 pr-4 text-right">Total cost</th>
                 <th className="py-2 pr-4 text-right">Paid</th>
+                <th className="py-2 pr-4 text-right">Owed / due</th>
                 <th className="py-2 pr-4">Expiry</th>
                 <th className="py-2 pr-4"></th>
               </tr>
             </thead>
             <tbody>
-              {[...data.supplyBatches].reverse().map((b) => {
+              {sortByDateDesc(data.supplyBatches, "dateReceived").map((b) => {
                 const expired = b.expiryDate && b.expiryDate < new Date().toISOString().slice(0, 10);
+                const balance = Math.max(0, (b.totalCost || 0) - (b.amountPaid || 0));
+                const due = balance > 0.004 ? debtDueDate(b.dateReceived, b.payablesDays, data.payablesDays ?? 30) : null;
+                const status = due ? debtStatus(due) : null;
                 return (
-                  <tr key={b.id} className="border-b border-ink-700/60 text-ink-200">
+                  <tr key={b.id} className="border-b border-ink-700/60 text-ink-200 align-top">
                     <td className="py-2 pr-4 chip">{b.dateReceived}</td>
                     <td className="py-2 pr-4">{supplierById[b.supplierId]?.name || "—"}</td>
                     <td className="py-2 pr-4">{b.itemName}</td>
                     <td className="py-2 pr-4 text-right chip">{b.quantity} {b.unit}</td>
                     <td className="py-2 pr-4 text-right chip">{money(b.totalCost)}</td>
                     <td className="py-2 pr-4 text-right chip">{money(b.amountPaid)}</td>
+                    <td className="py-2 pr-4 text-right">
+                      {balance > 0.004 ? (
+                        <div className="space-y-1">
+                          <div className={`chip ${status === "overdue" ? "text-red-400" : status === "due" ? "text-[var(--accent)]" : "text-[var(--accent)]"}`}>
+                            {money(balance)} · due {due}{status === "overdue" ? " · Overdue" : status === "due" ? " · Due" : ""}
+                          </div>
+                          <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                            <input type="number" min="0" step="0.01" className={`${inputCls} w-20 text-xs`} placeholder="amt" value={payDrafts[b.id]?.amount ?? ""} onChange={(e) => updatePayDraft(b.id, { amount: e.target.value })} />
+                            <input type="date" className={`${inputCls} w-32 text-xs`} value={payDrafts[b.id]?.date ?? ""} onChange={(e) => updatePayDraft(b.id, { date: e.target.value })} />
+                            <button type="button" className="chip text-[var(--accent)]" onClick={() => payBatch(b)}>pay</button>
+                          </div>
+                        </div>
+                      ) : <span className="chip text-ink-500">settled</span>}
+                    </td>
                     <td className={`py-2 pr-4 chip ${expired ? "text-red-400" : "text-ink-400"}`}>{b.expiryDate || "—"}</td>
                     <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => {
                       if (await confirmAction(`Remove this delivery of ${b.itemName}? This can't be undone.`, { danger: true, confirmLabel: "Remove" })) remove("supplyBatches", b.id);

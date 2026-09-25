@@ -50,15 +50,20 @@ export function useLocalDataSource() {
   const addWholesaleSubCategory = (name) => {
     setData((d) => (d.wholesaleSubCategories.includes(name) ? d : { ...d, wholesaleSubCategories: [...d.wholesaleSubCategories, name] }));
   };
+  const addExpenseCategory = (name) => {
+    setData((d) => ((d.expenseCategories || []).includes(name) ? d : { ...d, expenseCategories: [...(d.expenseCategories || []), name] }));
+  };
   const resetToSeed = () => setData(buildSeed());
   const clearAllData = () => setData(buildEmpty());
   const setCurrency = (currency) => setData((d) => ({ ...d, currency }));
   const setBranding = (patch) => setData((d) => ({ ...d, branding: { ...d.branding, ...patch } }));
   const setVatRate = (rate) => setData((d) => ({ ...d, vatRate: rate }));
+  const setReceivablesDays = (days) => setData((d) => ({ ...d, receivablesDays: days }));
+  const setPayablesDays = (days) => setData((d) => ({ ...d, payablesDays: days }));
 
   return {
     data, loaded: true, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
-    addIngredientToRecipe, addSegment, addWholesaleSubCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding, setVatRate, writeError: null, clearWriteError: () => {},
+    addIngredientToRecipe, addSegment, addWholesaleSubCategory, addExpenseCategory, resetToSeed, clearAllData,
+    setCurrency, setBranding, setVatRate, setReceivablesDays, setPayablesDays, writeError: null, clearWriteError: () => {},
   };
 }

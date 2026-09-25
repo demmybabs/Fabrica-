@@ -1,25 +1,28 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
-import { postJournalEntry, journalForExpense, journalForFixedAsset, journalForEquity } from "../lib/ledger";
+import { postJournalEntry, journalForExpense, journalForFixedAsset, journalForEquity, journalForLoan, journalForLoanRepayment, journalForOpeningBalance } from "../lib/ledger";
 import { accumulatedDepreciationAsOf, incomeStatement, balanceSheet, cashFlowStatement } from "../lib/financials";
+import { sortByDateDesc } from "../lib/calc";
 import Panel from "../components/Panel";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
-const expenseCategories = ["Rent", "Salaries & wages", "Utilities", "Transport & logistics", "Marketing", "Professional fees", "Repairs & maintenance", "Insurance", "Bank charges", "Other"];
-const blankExpense = { date: "", category: expenseCategories[0], description: "", amount: "", amountPaid: "" };
+const DEFAULT_EXPENSE_CATEGORIES = ["Rent", "Salaries & wages", "Utilities", "Transport & logistics", "Marketing", "Professional fees", "Repairs & maintenance", "Insurance", "Bank charges", "Other"];
+const blankExpense = { date: "", category: "", description: "", amount: "", amountPaid: "" };
 const blankAsset = { name: "", category: "", cost: "", purchaseDate: "", usefulLifeYears: "5", notes: "" };
-const blankEquity = { date: "", type: "contribution", amount: "", notes: "" };
+const blankEquity = { date: "", type: "contribution", holder: "owner", amount: "", notes: "" };
+const blankLoan = { lender: "", principal: "", startDate: "", interestRate: "", termMonths: "", notes: "" };
 
 const tabs = [
   { key: "statements", label: "Statements" },
   { key: "expenses", label: "Operating expenses" },
   { key: "assets", label: "Fixed assets" },
   { key: "equity", label: "Owner's equity" },
+  { key: "loans", label: "Loans / debt" },
 ];
 
 export default function Financials() {
-  const { data, add, remove } = useApp();
+  const { data, add, update, remove, addExpenseCategory } = useApp();
   const confirmAction = useConfirm();
   const money = useMoney();
   const [tab, setTab] = useState("statements");
@@ -31,8 +34,8 @@ export default function Financials() {
           <div className="chip text-ink-400 uppercase">Module 07</div>
           <h1 className="font-display text-xl font-semibold text-ink-50">Financials</h1>
           <p className="text-sm text-ink-400 mt-1 max-w-lg">
-            Operating expenses, fixed assets, and owner's equity feed the ledger behind the Income
-            Statement, Balance Sheet, and Cash Flow Statement.
+            Operating expenses, fixed assets, owner's/investor's equity, and loans feed the ledger
+            behind the Income Statement, Balance Sheet, and Cash Flow Statement.
           </p>
         </div>
       </div>
@@ -51,10 +54,11 @@ export default function Financials() {
         ))}
       </div>
 
-      {tab === "statements" && <StatementsTab data={data} money={money} />}
-      {tab === "expenses" && <ExpensesTab data={data} add={add} remove={remove} confirmAction={confirmAction} money={money} />}
+      {tab === "statements" && <StatementsTab data={data} add={add} remove={remove} confirmAction={confirmAction} money={money} />}
+      {tab === "expenses" && <ExpensesTab data={data} add={add} remove={remove} confirmAction={confirmAction} money={money} addExpenseCategory={addExpenseCategory} />}
       {tab === "assets" && <AssetsTab data={data} add={add} remove={remove} confirmAction={confirmAction} money={money} />}
       {tab === "equity" && <EquityTab data={data} add={add} remove={remove} confirmAction={confirmAction} money={money} />}
+      {tab === "loans" && <LoansTab data={data} add={add} update={update} remove={remove} confirmAction={confirmAction} money={money} />}
     </div>
   );
 }
@@ -62,7 +66,7 @@ export default function Financials() {
 const startOfMonth = (d) => `${d.slice(0, 7)}-01`;
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-function StatementsTab({ data, money }) {
+function StatementsTab({ data, add, remove, confirmAction, money }) {
   const [from, setFrom] = useState(startOfMonth(todayStr()));
   const [to, setTo] = useState(todayStr());
   const [asOf, setAsOf] = useState(todayStr());
@@ -147,10 +151,73 @@ function StatementsTab({ data, money }) {
         </div>
       )}
 
+      <OpeningBalancePanel data={data} add={add} remove={remove} confirmAction={confirmAction} money={money} />
       <IncomeStatementPanel income={income} money={money} />
       <BalanceSheetPanel balance={balance} money={money} />
       <CashFlowPanel cashFlow={cashFlow} money={money} />
     </div>
+  );
+}
+
+function OpeningBalancePanel({ data, add, remove, confirmAction, money }) {
+  const existing = (data.journalEntries || []).find((j) => j.sourceType === "opening_balance");
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayStr());
+
+  if (existing) {
+    const line = (existing.lines || []).find((l) => l.accountCode === "1000");
+    const existingAmount = line?.debit || 0;
+    const onRemove = async () => {
+      if (await confirmAction("Remove this opening cash balance? This can't be undone.", { danger: true, confirmLabel: "Remove" })) {
+        remove("journalEntries", existing.id);
+      }
+    };
+    return (
+      <Panel title="Opening cash balance" eyebrow="The cash/bank you were already holding before this Financials module went live">
+        <div className="flex items-center justify-between text-sm">
+          <div>
+            <span className="text-ink-200">{money(existingAmount)}</span>
+            <span className="text-ink-500 ml-2">as of {existing.date}</span>
+          </div>
+          <button type="button" className={btnGhostCls} onClick={onRemove}>Remove</button>
+        </div>
+      </Panel>
+    );
+  }
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const amt = parseFloat(amount) || 0;
+    if (amt <= 0) return;
+    await postJournalEntry(add, journalForOpeningBalance({ amount: amt, date }));
+    setAmount("");
+    setOpen(false);
+  };
+
+  return (
+    <Panel
+      title="Opening cash balance"
+      eyebrow="Record the cash/bank you were already holding before this Financials module went live"
+      actions={!open && <button type="button" className={btnGhostCls} onClick={() => setOpen(true)}>+ Add opening balance</button>}
+    >
+      {open ? (
+        <form onSubmit={submit} className="flex flex-wrap items-end gap-4">
+          <Field label="Amount">
+            <input type="number" step="0.01" min="0" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} required />
+          </Field>
+          <Field label="As of date">
+            <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} required />
+          </Field>
+          <div className="flex gap-2 pb-0.5">
+            <button type="submit" className={btnCls}>Save</button>
+            <button type="button" className={btnGhostCls} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : (
+        <p className="text-sm text-ink-400">Not yet recorded — Cash & Bank on the Balance Sheet reflects only ledger activity since go-live until this is added.</p>
+      )}
+    </Panel>
   );
 }
 
@@ -174,6 +241,8 @@ function IncomeStatementPanel({ income, money }) {
           <Row label="Total operating expenses" value={`(${money(opex.total_all)})`} strong divider />
         </div>
 
+        <Row label="Operating income" value={money(income.operatingIncome)} strong divider />
+        <Row label="Interest expense" value={`(${money(income.interestExpense)})`} indent />
         <Row label="Net income" value={money(income.netIncome)} strong divider large />
       </div>
     </Panel>
@@ -185,25 +254,41 @@ function BalanceSheetPanel({ balance, money }) {
     <Panel title="Balance Sheet" eyebrow={`As of ${balance.asOf}`}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
         <div>
-          <div className="chip text-ink-400 uppercase mb-1">Assets</div>
-          <Row label="Cash & Bank" value={money(balance.assets.cashAndBank)} />
-          <Row label="Accounts receivable" value={money(balance.assets.accountsReceivable)} />
-          <Row label="Inventory — raw materials" value={money(balance.assets.inventoryRawMaterials)} />
-          <Row label="Inventory — finished goods" value={money(balance.assets.inventoryFinishedGoods)} />
-          <Row label="Fixed assets, at cost" value={money(balance.assets.fixedAssetsCost)} />
-          <Row label="Accumulated depreciation" value={`(${money(balance.assets.accumulatedDepreciation)})`} indent />
-          <Row label="Total assets" value={money(balance.assets.total)} strong divider />
+          <div className="chip text-ink-400 uppercase mb-1">Current assets</div>
+          <Row label="Cash & Bank" value={money(balance.assets.current.cashAndBank)} />
+          <Row label="Accounts receivable" value={money(balance.assets.current.accountsReceivable)} />
+          <Row label="Inventory — raw materials" value={money(balance.assets.current.inventoryRawMaterials)} />
+          <Row label="Inventory — finished goods" value={money(balance.assets.current.inventoryFinishedGoods)} />
+          {balance.assets.current.goodsOnConsignment > 0 && <Row label="Goods on consignment (open Sale or Return)" value={money(balance.assets.current.goodsOnConsignment)} />}
+          <Row label="Total current assets" value={money(balance.assets.current.total)} strong divider />
+
+          <div className="chip text-ink-400 uppercase mb-1 mt-4">Non-current assets</div>
+          <Row label="Fixed assets, at cost" value={money(balance.assets.nonCurrent.fixedAssetsCost)} />
+          <Row label="Accumulated depreciation" value={`(${money(balance.assets.nonCurrent.accumulatedDepreciation)})`} indent />
+          <Row label="Total non-current assets" value={money(balance.assets.nonCurrent.total)} strong divider />
+
+          <Row label="Total assets" value={money(balance.assets.total)} strong divider large />
         </div>
         <div>
-          <div className="chip text-ink-400 uppercase mb-1">Liabilities</div>
-          <Row label="Accounts payable" value={money(balance.liabilities.accountsPayable)} />
-          <Row label="VAT payable" value={money(balance.liabilities.vatPayable)} />
-          <Row label="Accrued expenses" value={money(balance.liabilities.accruedExpenses)} />
+          <div className="chip text-ink-400 uppercase mb-1">Current liabilities</div>
+          <Row label="Accounts payable" value={money(balance.liabilities.current.accountsPayable)} />
+          <Row label="Loans payable (current portion)" value={money(balance.liabilities.current.loansPayable)} />
+          <Row label="VAT payable" value={money(balance.liabilities.current.vatPayable)} />
+          <Row label="Accrued expenses" value={money(balance.liabilities.current.accruedExpenses)} />
+          <Row label="Total current liabilities" value={money(balance.liabilities.current.total)} strong divider />
+
+          <div className="chip text-ink-400 uppercase mb-1 mt-4">Non-current liabilities</div>
+          <Row label="Loans payable (long-term)" value={money(balance.liabilities.nonCurrent.loansPayable)} />
+          <Row label="Total non-current liabilities" value={money(balance.liabilities.nonCurrent.total)} strong divider />
+
           <Row label="Total liabilities" value={money(balance.liabilities.total)} strong divider />
 
           <div className="chip text-ink-400 uppercase mb-1 mt-4">Equity</div>
           <Row label="Owner's capital" value={money(balance.equity.ownersCapital)} />
           <Row label="Owner's drawings" value={`(${money(balance.equity.ownersDrawings)})`} indent />
+          <Row label="Investor capital" value={money(balance.equity.investorCapital)} />
+          <Row label="Investor drawings / redemptions" value={`(${money(balance.equity.investorDrawings)})`} indent />
+          <Row label="Opening balance equity" value={money(balance.equity.openingBalanceEquity)} />
           <Row label="Retained earnings" value={money(balance.equity.retainedEarnings)} />
           <Row label="Total equity" value={money(balance.equity.total)} strong divider />
         </div>
@@ -241,9 +326,14 @@ function Row({ label, value, strong, indent, muted, divider, large }) {
   );
 }
 
-function ExpensesTab({ data, add, remove, confirmAction, money }) {
+function ExpensesTab({ data, add, remove, confirmAction, money, addExpenseCategory }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blankExpense);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+
+  const categories = (data.expenseCategories && data.expenseCategories.length > 0) ? data.expenseCategories : DEFAULT_EXPENSE_CATEGORIES;
+  const currentCategory = form.category || categories[0] || "";
 
   const total = (data.operatingExpenses || []).reduce((s, e) => s + (e.amount || 0), 0);
   const totalPaid = (data.operatingExpenses || []).reduce((s, e) => s + (e.amountPaid || 0), 0);
@@ -252,7 +342,7 @@ function ExpensesTab({ data, add, remove, confirmAction, money }) {
     e.preventDefault();
     const record = {
       date: form.date || new Date().toISOString().slice(0, 10),
-      category: form.category,
+      category: currentCategory,
       description: form.description,
       amount: parseFloat(form.amount) || 0,
       amountPaid: parseFloat(form.amountPaid) || 0,
@@ -263,6 +353,15 @@ function ExpensesTab({ data, add, remove, confirmAction, money }) {
     }
     setForm(blankExpense);
     setOpen(false);
+  };
+
+  const saveNewCategory = () => {
+    const name = newCategory.trim();
+    if (!name) return;
+    addExpenseCategory(name);
+    setForm({ ...form, category: name });
+    setNewCategory("");
+    setAddingCategory(false);
   };
 
   return (
@@ -285,9 +384,22 @@ function ExpensesTab({ data, add, remove, confirmAction, money }) {
         <Panel title="Log an operating expense" eyebrow="Rent, salaries, utilities, and everything else that isn't cost of goods sold">
           <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
             <Field label="Category">
-              <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                {expenseCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              {addingCategory ? (
+                <div className="flex gap-1.5">
+                  <input className={inputCls} value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="New category name" autoFocus />
+                  <button type="button" className={btnGhostCls} onClick={saveNewCategory}>Add</button>
+                  <button type="button" className="chip text-ink-500 hover:text-ink-300" onClick={() => { setAddingCategory(false); setNewCategory(""); }}>×</button>
+                </div>
+              ) : (
+                <select
+                  className={inputCls}
+                  value={currentCategory}
+                  onChange={(e) => (e.target.value === "__new__" ? setAddingCategory(true) : setForm({ ...form, category: e.target.value }))}
+                >
+                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="__new__">+ New category…</option>
+                </select>
+              )}
             </Field>
             <Field label="Description">
               <input className={inputCls} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. September office rent" />
@@ -319,7 +431,7 @@ function ExpensesTab({ data, add, remove, confirmAction, money }) {
               </tr>
             </thead>
             <tbody>
-              {[...(data.operatingExpenses || [])].reverse().map((ex) => (
+              {sortByDateDesc(data.operatingExpenses, "date").map((ex) => (
                 <tr key={ex.id} className="border-b border-ink-700/60 text-ink-200">
                   <td className="py-2 pr-4 chip">{ex.date}</td>
                   <td className="py-2 pr-4">{ex.category}</td>
@@ -422,7 +534,7 @@ function AssetsTab({ data, add, remove, confirmAction, money }) {
               </tr>
             </thead>
             <tbody>
-              {[...(data.fixedAssets || [])].reverse().map((a) => {
+              {sortByDateDesc(data.fixedAssets, "purchaseDate").map((a) => {
                 const dep = accumulatedDepreciation(a);
                 return (
                   <tr key={a.id} className="border-b border-ink-700/60 text-ink-200">
@@ -450,14 +562,21 @@ function EquityTab({ data, add, remove, confirmAction, money }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(blankEquity);
 
-  const contributions = (data.equityTransactions || []).filter((t) => t.type === "contribution").reduce((s, t) => s + (t.amount || 0), 0);
-  const drawings = (data.equityTransactions || []).filter((t) => t.type === "drawing").reduce((s, t) => s + (t.amount || 0), 0);
+  const txByHolder = (holder) => (data.equityTransactions || []).filter((t) => (t.holder || "owner") === holder);
+  const sumType = (rows, type) => rows.filter((t) => t.type === type).reduce((s, t) => s + (t.amount || 0), 0);
+  const ownerRows = txByHolder("owner");
+  const investorRows = txByHolder("investor");
+  const ownerContrib = sumType(ownerRows, "contribution");
+  const ownerDraw = sumType(ownerRows, "drawing");
+  const investorContrib = sumType(investorRows, "contribution");
+  const investorDraw = sumType(investorRows, "drawing");
 
   const submit = async (e) => {
     e.preventDefault();
     const record = {
       date: form.date || new Date().toISOString().slice(0, 10),
       type: form.type,
+      holder: form.holder,
       amount: parseFloat(form.amount) || 0,
       notes: form.notes,
     };
@@ -472,36 +591,46 @@ function EquityTab({ data, add, remove, confirmAction, money }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
           <div className="bg-ink-800 border border-ink-700 rounded-lg px-5 py-4">
-            <div className="chip text-ink-400 uppercase">Capital contributed</div>
-            <div className="font-display text-2xl font-semibold text-brass-400 mt-1.5">{money(contributions)}</div>
+            <div className="chip text-ink-400 uppercase">Owner's net equity</div>
+            <div className="font-display text-2xl font-semibold text-brass-400 mt-1.5">{money(ownerContrib - ownerDraw)}</div>
+            <div className="chip text-ink-500 mt-1">{money(ownerContrib)} in · {money(ownerDraw)} out</div>
           </div>
           <div className="bg-ink-800 border border-ink-700 rounded-lg px-5 py-4">
-            <div className="chip text-ink-400 uppercase">Drawings</div>
-            <div className="font-display text-2xl font-semibold text-[var(--accent)] mt-1.5">{money(drawings)}</div>
-          </div>
-          <div className="bg-ink-800 border border-ink-700 rounded-lg px-5 py-4">
-            <div className="chip text-ink-400 uppercase">Net owner's equity</div>
-            <div className="font-display text-2xl font-semibold text-ink-50 mt-1.5">{money(contributions - drawings)}</div>
+            <div className="chip text-ink-400 uppercase">Investor net equity</div>
+            <div className="font-display text-2xl font-semibold text-[var(--accent)] mt-1.5">{money(investorContrib - investorDraw)}</div>
+            <div className="chip text-ink-500 mt-1">{money(investorContrib)} in · {money(investorDraw)} out</div>
           </div>
         </div>
         <button className={btnGhostCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Log contribution / drawing"}</button>
       </div>
 
+      <p className="text-xs text-ink-500">
+        Equity is money with no repayment obligation — the owner's or an outside investor's stake in
+        the business. Borrowed money (a bank loan, a director's loan) is debt, not equity — log that
+        under Loans / debt instead, since it carries a repayment schedule and interest.
+      </p>
+
       {open && (
-        <Panel title="Log a capital contribution or drawing" eyebrow="Money the owner puts into the business, or takes out of it">
-          <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        <Panel title="Log a capital contribution or drawing" eyebrow="Money the owner or an investor puts into the business, or takes out of it">
+          <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+            <Field label="Who">
+              <select className={inputCls} value={form.holder} onChange={(e) => setForm({ ...form, holder: e.target.value })}>
+                <option value="owner">Owner</option>
+                <option value="investor">Outside investor</option>
+              </select>
+            </Field>
             <Field label="Type">
               <select className={inputCls} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-                <option value="contribution">Owner's capital contribution (in)</option>
-                <option value="drawing">Owner's drawing (out)</option>
+                <option value="contribution">Capital contribution (in)</option>
+                <option value="drawing">Drawing / redemption (out)</option>
               </select>
             </Field>
             <Field label="Amount"><input type="number" min="0" step="0.01" className={inputCls} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required /></Field>
             <Field label="Date"><input type="date" className={inputCls} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
             <Field label="Notes"><input className={inputCls} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional" /></Field>
-            <div className="col-span-1 sm:col-span-2 md:col-span-4 flex justify-end pt-1">
+            <div className="col-span-1 sm:col-span-2 md:col-span-5 flex justify-end pt-1">
               <button type="submit" className={btnCls}>Save</button>
             </div>
           </form>
@@ -510,10 +639,11 @@ function EquityTab({ data, add, remove, confirmAction, money }) {
 
       <Panel title="Equity log" eyebrow="Every contribution and drawing, most recent first">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" style={{ minWidth: "500px" }}>
+          <table className="w-full text-sm" style={{ minWidth: "550px" }}>
             <thead>
               <tr className="text-left chip text-ink-500 uppercase border-b border-ink-700">
                 <th className="py-2 pr-4">Date</th>
+                <th className="py-2 pr-4">Who</th>
                 <th className="py-2 pr-4">Type</th>
                 <th className="py-2 pr-4">Notes</th>
                 <th className="py-2 pr-4 text-right">Amount</th>
@@ -521,18 +651,171 @@ function EquityTab({ data, add, remove, confirmAction, money }) {
               </tr>
             </thead>
             <tbody>
-              {[...(data.equityTransactions || [])].reverse().map((t) => (
+              {sortByDateDesc(data.equityTransactions, "date").map((t) => (
                 <tr key={t.id} className="border-b border-ink-700/60 text-ink-200">
                   <td className="py-2 pr-4 chip">{t.date}</td>
+                  <td className="py-2 pr-4">{(t.holder || "owner") === "investor" ? "Investor" : "Owner"}</td>
                   <td className="py-2 pr-4">{t.type === "contribution" ? "Contribution" : "Drawing"}</td>
                   <td className="py-2 pr-4 text-ink-400 text-xs">{t.notes || "—"}</td>
                   <td className="py-2 pr-4 text-right chip">{money(t.amount)}</td>
                   <td className="py-2 pr-4 text-right"><button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => { if (await confirmAction("Remove this entry? This can't be undone.", { danger: true, confirmLabel: "Remove" })) remove("equityTransactions", t.id); }}>remove</button></td>
                 </tr>
               ))}
-              {(data.equityTransactions || []).length === 0 && <tr><td colSpan={5} className="py-6 text-center text-ink-500">No equity transactions logged yet.</td></tr>}
+              {(data.equityTransactions || []).length === 0 && <tr><td colSpan={6} className="py-6 text-center text-ink-500">No equity transactions logged yet.</td></tr>}
             </tbody>
           </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function LoansTab({ data, add, update, remove, confirmAction, money }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(blankLoan);
+  const [repayDrafts, setRepayDrafts] = useState({});
+
+  const outstanding = (loan) => {
+    const repaid = (loan.repayments || []).reduce((s, r) => s + (r.principalPortion || 0), 0);
+    return Math.max(0, (loan.principal || 0) - repaid);
+  };
+  const totalPrincipal = (data.loans || []).reduce((s, l) => s + (l.principal || 0), 0);
+  const totalOutstanding = (data.loans || []).reduce((s, l) => s + outstanding(l), 0);
+  const totalInterestPaid = (data.loans || []).reduce((s, l) => s + (l.repayments || []).reduce((rs, r) => rs + (r.interestPortion || 0), 0), 0);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const record = {
+      lender: form.lender,
+      principal: parseFloat(form.principal) || 0,
+      startDate: form.startDate || new Date().toISOString().slice(0, 10),
+      interestRate: parseFloat(form.interestRate) || 0,
+      termMonths: parseFloat(form.termMonths) || null,
+      notes: form.notes,
+      repayments: [],
+    };
+    const result = await add("loans", record);
+    if (result?.ok !== false) {
+      await postJournalEntry(add, journalForLoan({ ...record, id: result.id }));
+    }
+    setForm(blankLoan);
+    setOpen(false);
+  };
+
+  const updateDraft = (loanId, patch) => setRepayDrafts((d) => ({ ...d, [loanId]: { ...d[loanId], ...patch } }));
+
+  const logRepayment = async (loan) => {
+    const draft = repayDrafts[loan.id];
+    const principalPortion = parseFloat(draft?.principalPortion) || 0;
+    const interestPortion = parseFloat(draft?.interestPortion) || 0;
+    if (principalPortion <= 0 && interestPortion <= 0) return;
+    const date = draft?.date || new Date().toISOString().slice(0, 10);
+    const proceed = await confirmAction(
+      `Record a repayment of ${money(principalPortion + interestPortion)} (${money(principalPortion)} principal, ${money(interestPortion)} interest) against this loan?`,
+      { confirmLabel: "Confirm" }
+    );
+    if (!proceed) return;
+    const repayments = [...(loan.repayments || []), { date, amount: principalPortion + interestPortion, principalPortion, interestPortion }];
+    await update("loans", loan.id, { repayments });
+    await postJournalEntry(add, journalForLoanRepayment({ ...loan, repaymentDate: date }, { principalPortion, interestPortion }));
+    setRepayDrafts((d) => { const next = { ...d }; delete next[loan.id]; return next; });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
+          <div className="bg-ink-800 border border-ink-700 rounded-lg px-5 py-4">
+            <div className="chip text-ink-400 uppercase">Total borrowed</div>
+            <div className="font-display text-2xl font-semibold text-brass-400 mt-1.5">{money(totalPrincipal)}</div>
+          </div>
+          <div className="bg-ink-800 border border-ink-700 rounded-lg px-5 py-4">
+            <div className="chip text-ink-400 uppercase">Outstanding principal</div>
+            <div className="font-display text-2xl font-semibold text-[var(--accent)] mt-1.5">{money(totalOutstanding)}</div>
+          </div>
+          <div className="bg-ink-800 border border-ink-700 rounded-lg px-5 py-4">
+            <div className="chip text-ink-400 uppercase">Interest paid to date</div>
+            <div className="font-display text-2xl font-semibold text-ink-50 mt-1.5">{money(totalInterestPaid)}</div>
+          </div>
+        </div>
+        <button className={btnGhostCls} onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Add loan"}</button>
+      </div>
+
+      <p className="text-xs text-ink-500">
+        Debt, not equity — a bank loan, a director's loan, or any borrowed money with a repayment
+        schedule. Posts as a liability (Loans Payable), not to Owner's/Investor's Equity.
+      </p>
+
+      {open && (
+        <Panel title="Add a loan" eyebrow="Principal received now; log repayments against it as they happen">
+          <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+            <Field label="Lender"><input className={inputCls} value={form.lender} onChange={(e) => setForm({ ...form, lender: e.target.value })} placeholder="e.g. GTBank, Director's loan" required /></Field>
+            <Field label="Principal"><input type="number" min="0" step="0.01" className={inputCls} value={form.principal} onChange={(e) => setForm({ ...form, principal: e.target.value })} required /></Field>
+            <Field label="Start date"><input type="date" className={inputCls} value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></Field>
+            <Field label="Interest rate (annual %)"><input type="number" min="0" step="0.01" className={inputCls} value={form.interestRate} onChange={(e) => setForm({ ...form, interestRate: e.target.value })} /></Field>
+            <Field label="Term (months)"><input type="number" min="1" step="1" className={inputCls} value={form.termMonths} onChange={(e) => setForm({ ...form, termMonths: e.target.value })} /></Field>
+            <div className="col-span-1 sm:col-span-2 md:col-span-5">
+              <Field label="Notes">
+                <input className={inputCls} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional" />
+              </Field>
+            </div>
+            <div className="col-span-1 sm:col-span-2 md:col-span-5 flex justify-end pt-1">
+              <button type="submit" className={btnCls}>Save</button>
+            </div>
+          </form>
+        </Panel>
+      )}
+
+      <Panel title="Loan register" eyebrow="Outstanding balance updates as repayments are logged">
+        <div className="space-y-4">
+          {(data.loans || []).length === 0 && <p className="text-center text-ink-500 py-6 text-sm">No loans logged yet.</p>}
+          {sortByDateDesc(data.loans, "startDate").map((loan) => {
+            const draft = repayDrafts[loan.id] || {};
+            return (
+              <div key={loan.id} className="border border-ink-700 rounded-lg p-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-ink-100">{loan.lender}</div>
+                    <div className="chip text-ink-500 mt-0.5">
+                      {money(loan.principal)} principal · {loan.interestRate || 0}% p.a. · started {loan.startDate}
+                      {loan.termMonths ? ` · ${loan.termMonths} mo term` : ""}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="chip text-ink-400 uppercase">Outstanding</div>
+                    <div className="font-display text-lg font-semibold text-brass-400">{money(outstanding(loan))}</div>
+                  </div>
+                  <button className="text-ink-500 hover:text-[var(--accent)] text-xs" onClick={async () => { if (await confirmAction("Remove this loan and its repayment history? This can't be undone.", { danger: true, confirmLabel: "Remove" })) remove("loans", loan.id); }}>remove</button>
+                </div>
+
+                {(loan.repayments || []).length > 0 && (
+                  <div className="mt-3 text-xs text-ink-400">
+                    {(loan.repayments || []).map((r, i) => (
+                      <div key={i} className="flex justify-between py-0.5">
+                        <span>{r.date} — repayment</span>
+                        <span>{money(r.principalPortion)} principal + {money(r.interestPortion)} interest</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {outstanding(loan) > 0.004 && (
+                  <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-ink-700 pt-3">
+                    <Field label="Principal portion">
+                      <input type="number" min="0" step="0.01" className={inputCls} style={{ width: "9rem" }} value={draft.principalPortion || ""} onChange={(e) => updateDraft(loan.id, { principalPortion: e.target.value })} />
+                    </Field>
+                    <Field label="Interest portion">
+                      <input type="number" min="0" step="0.01" className={inputCls} style={{ width: "9rem" }} value={draft.interestPortion || ""} onChange={(e) => updateDraft(loan.id, { interestPortion: e.target.value })} />
+                    </Field>
+                    <Field label="Date">
+                      <input type="date" className={inputCls} style={{ width: "9rem" }} value={draft.date || ""} onChange={(e) => updateDraft(loan.id, { date: e.target.value })} />
+                    </Field>
+                    <button className={btnGhostCls} onClick={() => logRepayment(loan)}>Log repayment</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </Panel>
     </div>

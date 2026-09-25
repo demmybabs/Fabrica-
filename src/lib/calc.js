@@ -224,8 +224,14 @@ export function finishedGoodsInventory(data) {
 
   const sold = {};
   for (const order of salesOrders) {
+    const isSOR = order.saleType === "sale_or_return";
     for (const item of order.items || []) {
-      sold[item.productId] = (sold[item.productId] || 0) + item.quantity;
+      // A Sale-or-Return item physically leaves the shelf at shipment
+      // (whether or not it's been billed yet) and comes back on-hand the
+      // moment it's recorded as returned — independent of whether the
+      // sale itself has been closed.
+      const returned = isSOR ? (item.quantityReturned || 0) : 0;
+      sold[item.productId] = (sold[item.productId] || 0) + item.quantity - returned;
     }
   }
   const spoiled = {};
@@ -261,6 +267,7 @@ export function salesWithMargin(data) {
 
   const rows = [];
   for (const order of data.salesOrders) {
+    const isSOR = order.saleType === "sale_or_return";
     for (const item of order.items || []) {
       const costPerUnit = costByProduct[item.productId] || 0;
       // A giveaway line (advertising/charity — no charge) never counts as
@@ -268,12 +275,23 @@ export function salesWithMargin(data) {
       // consumes inventory and carries a real cost, which is what makes
       // it worth tracking separately rather than just leaving it off.
       const isGiveaway = !!item.isGiveaway;
-      const revenue = isGiveaway ? 0 : item.quantity * item.unitPrice;
-      const cogs = item.quantity * costPerUnit;
+      // A Sale-or-Return item is on consignment — the units the customer
+      // actually keeps (shipped minus returned) are what's ever billable,
+      // and neither revenue nor its cost is recognized until the sale is
+      // closed, so an open one contributes nothing to either yet.
+      const returned = isSOR ? (item.quantityReturned || 0) : 0;
+      const keptQty = Math.max(0, item.quantity - returned);
+      const billable = !isSOR || !!order.closed;
+      const revenue = isGiveaway || !billable ? 0 : keptQty * item.unitPrice;
+      const cogsQty = isSOR ? (billable ? keptQty : 0) : item.quantity;
+      const cogs = cogsQty * costPerUnit;
       rows.push({
         id: `${order.id}::${item.productId}`,
         orderId: order.id,
-        date: order.date,
+        // Revenue for a closed Sale-or-Return is earned the day it's
+        // closed, not the day the goods first went out — so it lands in
+        // the right income-statement period.
+        date: isSOR && order.closed ? (order.closedDate || order.date) : order.date,
         paymentMode: summarizePaymentModes(orderPayments(order, null)),
         customer: customerById[order.customerId],
         customerId: order.customerId,
@@ -283,6 +301,10 @@ export function salesWithMargin(data) {
         unitPrice: item.unitPrice,
         costPerUnit,
         isGiveaway,
+        isSaleOrReturn: isSOR,
+        returnedQty: returned,
+        keptQty,
+        closed: !isSOR || !!order.closed,
         revenue,
         cogs,
         margin: revenue - cogs,
@@ -291,6 +313,63 @@ export function salesWithMargin(data) {
     }
   }
   return rows;
+}
+
+// Whether an order is an open (not yet closed) Sale-or-Return — a
+// consignment-style sale where the customer can return unsold units
+// before anything is billed. No revenue, cost of goods, or receivable is
+// recognized for one of these until it's closed.
+export function isOpenSaleOrReturn(order) {
+  return order.saleType === "sale_or_return" && !order.closed;
+}
+
+// What's actually billable on an order — every non-giveaway line's
+// quantity × price for an ordinary sale; for a Sale-or-Return, only the
+// units the customer has kept (quantity minus whatever's been returned),
+// and nothing at all until the sale is closed.
+export function orderBillableSubtotal(order) {
+  if (isOpenSaleOrReturn(order)) return 0;
+  const isSOR = order.saleType === "sale_or_return";
+  return (order.items || []).reduce((sum, i) => {
+    if (i.isGiveaway) return sum;
+    const kept = isSOR ? Math.max(0, i.quantity - (i.quantityReturned || 0)) : i.quantity;
+    return sum + kept * i.unitPrice;
+  }, 0);
+}
+
+export function orderBillableTotal(order) {
+  return orderBillableSubtotal(order) * (1 + (order.vatRate || 0) / 100);
+}
+
+// Every open Sale-or-Return order — what's out with customers on
+// consignment but not yet recognized as revenue, for the Sales dashboard.
+export function openSaleOrReturnOrders(data) {
+  const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
+  return (data.salesOrders || [])
+    .filter((o) => isOpenSaleOrReturn(o))
+    .map((order) => {
+      const items = order.items || [];
+      const value = items.reduce((s, i) => s + (i.isGiveaway ? 0 : i.quantity * i.unitPrice), 0);
+      const productCount = new Set(items.map((i) => i.productId)).size;
+      const anyReturned = items.some((i) => (i.quantityReturned || 0) > 0);
+      return {
+        order,
+        customer: customerById[order.customerId],
+        customerName: customerById[order.customerId]?.name || "—",
+        value,
+        productCount,
+        date: order.date,
+        anyReturned,
+      };
+    })
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
+// Total value (at selling price) currently out on open Sale-or-Return —
+// the "hasn't been closed yet" figure requested for the Sales/Overview
+// dashboards.
+export function saleOrReturnOpenValue(data) {
+  return openSaleOrReturnOrders(data).reduce((s, r) => s + r.value, 0);
 }
 
 // Every giveaway line (advertising / charity — items given out at no
@@ -330,7 +409,7 @@ export function customerAnalytics(data) {
 
   const balanceByCustomer = {};
   for (const order of data.salesOrders) {
-    const total = (order.items || []).reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+    const total = orderBillableSubtotal(order);
     const paid = orderPaidTotal(order, total);
     const balance = Math.max(0, total - paid);
     if (balance > 0) balanceByCustomer[order.customerId] = (balanceByCustomer[order.customerId] || 0) + balance;
@@ -447,6 +526,101 @@ export function summarizePaymentModes(payments) {
   return "Mixed";
 }
 
+// Sorts any list of records by a date field, most recent first — used
+// everywhere a module's log/register is displayed, so it reads newest to
+// oldest regardless of the order records were entered or backdated in.
+// Ties keep their original relative order (stable sort).
+export function sortByDateDesc(list, dateField = "date") {
+  return [...(list || [])]
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => {
+      const da = a.item[dateField] || "";
+      const db = b.item[dateField] || "";
+      if (da !== db) return da < db ? 1 : -1;
+      return b.i - a.i;
+    })
+    .map(({ item }) => item);
+}
+
+// Adds whole days to a "YYYY-MM-DD" date string, working in UTC so it's
+// never off by one across a daylight-saving boundary.
+function addDays(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + Math.round(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+// A debt's (receivable or payable) due date — the date it was incurred
+// plus however many days of credit were extended, falling back to the
+// business-wide default (30 days, as agreed) when nothing more specific
+// was set on the record itself.
+export function debtDueDate(incurredDate, days, defaultDays = 30) {
+  return addDays(incurredDate, days ?? defaultDays);
+}
+
+// Where a debt sits relative to its due date, today: "current" (not yet
+// due), "due" (due date has arrived, within the 5-day grace period), or
+// "overdue" (more than 5 days past due) — the thresholds requested for
+// both the Debtors and Creditors views.
+export function debtStatus(dueDate, asOf = new Date().toISOString().slice(0, 10)) {
+  if (asOf < dueDate) return "current";
+  const graceEnd = addDays(dueDate, 5);
+  return asOf > graceEnd ? "overdue" : "due";
+}
+
+// The full list of open debtors (customers with an outstanding balance),
+// one row per order still owing money — an order-level (not just
+// customer-level) view, since each order carries its own due date.
+export function debtorsList(data, asOf = new Date().toISOString().slice(0, 10)) {
+  const customerById = Object.fromEntries(data.customers.map((c) => [c.id, c]));
+  const defaultDays = data.receivablesDays ?? 30;
+  const rows = [];
+  for (const order of data.salesOrders) {
+    const total = orderBillableTotal(order);
+    const paid = orderPaidTotal(order, total);
+    const balance = Math.max(0, total - paid);
+    if (balance <= 0.004) continue;
+    // A closed Sale-or-Return is due from the day it was closed (billed),
+    // not the day the goods first shipped.
+    const incurredDate = order.saleType === "sale_or_return" ? (order.closedDate || order.date) : order.date;
+    const dueDate = debtDueDate(incurredDate, order.receivablesDays, defaultDays);
+    rows.push({
+      order,
+      customer: customerById[order.customerId],
+      customerName: customerById[order.customerId]?.name || "—",
+      invoiceNumber: order.invoiceNumber,
+      balance,
+      date: incurredDate,
+      dueDate,
+      status: debtStatus(dueDate, asOf),
+    });
+  }
+  return rows.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
+}
+
+// Same idea for suppliers — one row per delivery still owed for.
+export function creditorsList(data, asOf = new Date().toISOString().slice(0, 10)) {
+  const supplierById = Object.fromEntries(data.suppliers.map((s) => [s.id, s]));
+  const defaultDays = data.payablesDays ?? 30;
+  const rows = [];
+  for (const batch of data.supplyBatches) {
+    const balance = Math.max(0, (batch.totalCost || 0) - (batch.amountPaid || 0));
+    if (balance <= 0.004) continue;
+    const dueDate = debtDueDate(batch.dateReceived, batch.payablesDays, defaultDays);
+    rows.push({
+      batch,
+      supplier: supplierById[batch.supplierId],
+      supplierName: supplierById[batch.supplierId]?.name || "—",
+      itemName: batch.itemName,
+      balance,
+      date: batch.dateReceived,
+      dueDate,
+      status: debtStatus(dueDate, asOf),
+    });
+  }
+  return rows.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
+}
+
 export function overviewMetrics(data, range = {}) {
   const { from, to } = range;
   const allLines = salesWithMargin(data);
@@ -464,16 +638,20 @@ export function overviewMetrics(data, range = {}) {
   const payables = ledger.reduce((s, r) => s + r.payable, 0);
   const ordersInRange = data.salesOrders.filter((o) => inRange(o.date, from, to));
   const receivables = data.salesOrders.reduce((s, order) => {
-    const total = (order.items || []).reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    const total = orderBillableSubtotal(order);
     const paid = orderPaidTotal(order, total);
     return s + Math.max(0, total - paid);
   }, 0);
   const onCredit = data.salesOrders.reduce((s, order) => {
-    const total = (order.items || []).reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    const total = orderBillableSubtotal(order);
     return s + orderCreditTotal(order, total);
   }, 0);
   const vatCollected = ordersInRange.reduce((s, o) => s + (o.vatAmount || 0), 0);
-  const unitsSold = lines.reduce((s, r) => s + r.quantity, 0);
+  // "Closed" is always true for an ordinary sale, so keptQty (== quantity
+  // there) is what counts; an open Sale-or-Return contributes nothing —
+  // its units haven't been sold yet, just shipped out on consignment.
+  const unitsSold = lines.reduce((s, r) => s + (r.closed ? r.keptQty : 0), 0);
+  const saleOrReturnOpenValue = openSaleOrReturnOrders(data).reduce((s, r) => s + r.value, 0);
   const orderCount = new Set(lines.map((r) => r.orderId)).size;
   const givingUnits = givingLines.reduce((s, r) => s + r.quantity, 0);
   const givingValue = givingLines.reduce((s, r) => s + r.cogs, 0);
@@ -500,6 +678,7 @@ export function overviewMetrics(data, range = {}) {
     productionLossValue,
     productionLossUnits,
     spoilageValue,
+    saleOrReturnOpenValue,
   };
 }
 
@@ -532,13 +711,16 @@ function bucketLabel(key, groupBy) {
 // excluded from revenue automatically since their revenue is already 0,
 // but still show up under units if includeGiveaways is true).
 export function topProducts(data, range = {}, by = "revenue", limit = 5) {
-  const lines = salesWithMargin(data).filter((s) => inRange(s.date, range.from, range.to) && !s.isGiveaway);
+  // An open Sale-or-Return line isn't a sale yet (see salesWithMargin) —
+  // excluded here the same way a giveaway is, so it doesn't inflate
+  // "top products" before it's actually been earned.
+  const lines = salesWithMargin(data).filter((s) => inRange(s.date, range.from, range.to) && !s.isGiveaway && s.closed);
   const groups = {};
   for (const l of lines) {
     const key = l.productId || "—";
     if (!groups[key]) groups[key] = { product: l.product, revenue: 0, quantity: 0, margin: 0 };
     groups[key].revenue += l.revenue;
-    groups[key].quantity += l.quantity;
+    groups[key].quantity += l.keptQty;
     groups[key].margin += l.margin;
   }
   return Object.values(groups).sort((a, b) => b[by] - a[by]).slice(0, limit);

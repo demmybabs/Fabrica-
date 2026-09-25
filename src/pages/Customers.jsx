@@ -6,7 +6,7 @@ import Panel from "../components/Panel";
 import StatCard from "../components/StatCard";
 import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 
-const blank = { name: "", gender: "", profession: "", segment: "", subCategory: "", branch: "", state: "", city: "", email: "", phone: "" };
+const blank = { name: "", gender: "", profession: "", segment: "", subCategory: "", branches: [], state: "", city: "", email: "", phone: "" };
 
 export default function Customers() {
   const { data, add, update, remove, addSegment, addWholesaleSubCategory } = useApp();
@@ -20,6 +20,9 @@ export default function Customers() {
   const [newSubCategory, setNewSubCategory] = useState("");
   const [customPrices, setCustomPrices] = useState({});
   const [editingPricesFor, setEditingPricesFor] = useState(null);
+  const [newBranch, setNewBranch] = useState("");
+  const [editingBranchesFor, setEditingBranchesFor] = useState(null);
+  const [newBranchForExisting, setNewBranchForExisting] = useState("");
 
   const analytics = customerAnalytics(data).sort((a, b) => b.revenue - a.revenue);
   const bySegment = performanceByAttribute(data, "segment");
@@ -51,6 +54,26 @@ export default function Customers() {
     setForm({ ...blank, segment: data.segments[0] || "" });
     setCustomPrices({});
     setOpen(false);
+  };
+
+  const addBranchToForm = () => {
+    const name = newBranch.trim();
+    if (!name || form.branches.includes(name)) return;
+    setForm({ ...form, branches: [...form.branches, name] });
+    setNewBranch("");
+  };
+  const removeBranchFromForm = (name) => setForm({ ...form, branches: form.branches.filter((b) => b !== name) });
+
+  const addBranchToExisting = (customer) => {
+    const name = newBranchForExisting.trim();
+    if (!name) return;
+    const branches = customer.branches || [];
+    if (branches.includes(name)) return;
+    update("customers", customer.id, { branches: [...branches, name] });
+    setNewBranchForExisting("");
+  };
+  const removeBranchFromExisting = (customer, name) => {
+    update("customers", customer.id, { branches: (customer.branches || []).filter((b) => b !== name) });
   };
 
   const saveNewSegment = () => {
@@ -143,8 +166,27 @@ export default function Customers() {
                       </div>
                     )}
                   </Field>
-                  <Field label="Branch / location">
-                    <input className={inputCls} value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} placeholder="e.g. Apapa Branch" />
+                  <Field label="Branches — add one per location this store has (leave empty if it's a single location)">
+                    <div className="flex gap-2">
+                      <input
+                        className={inputCls}
+                        value={newBranch}
+                        onChange={(e) => setNewBranch(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addBranchToForm(); } }}
+                        placeholder="e.g. Apapa Branch"
+                      />
+                      <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={addBranchToForm}>+ add</button>
+                    </div>
+                    {form.branches.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {form.branches.map((b) => (
+                          <span key={b} className="chip bg-ink-900 border border-ink-700 rounded px-2 py-0.5 text-ink-300 flex items-center gap-1.5">
+                            {b}
+                            <button type="button" className="text-ink-500 hover:text-[var(--accent)]" onClick={() => removeBranchFromForm(b)}>×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </Field>
                 </>
               ) : (
@@ -221,13 +263,21 @@ export default function Customers() {
                 <Fragment key={row.customer.id}>
                   <tr className="border-b border-ink-700/60 text-ink-200">
                     <td className="py-2 pr-4">{row.customer.name}</td>
-                    <td className="py-2 pr-4 chip">{row.customer.segment}{row.customer.subCategory ? ` · ${row.customer.subCategory}` : ""}{row.customer.branch ? ` · ${row.customer.branch}` : ""}</td>
+                    <td className="py-2 pr-4 chip">
+                      {row.customer.segment}{row.customer.subCategory ? ` · ${row.customer.subCategory}` : ""}
+                      {(row.customer.branches?.length > 0) ? ` · ${row.customer.branches.length} branch${row.customer.branches.length === 1 ? "" : "es"}` : (row.customer.branch ? ` · ${row.customer.branch}` : "")}
+                    </td>
                     <td className="py-2 pr-4 text-ink-400 text-xs">{row.customer.phone || row.customer.email || "—"}</td>
                     <td className="py-2 pr-4 text-right chip">{row.orders}</td>
                     <td className="py-2 pr-4 text-right chip">{money(row.revenue)}</td>
                     <td className="py-2 pr-4 text-right chip text-moss-400">{money(row.margin)}</td>
                     <td className="py-2 pr-4 text-right chip text-[var(--accent)]">{row.balance > 0 ? money(row.balance) : "—"}</td>
                     <td className="py-2 pr-4 text-right whitespace-nowrap">
+                      {row.customer.segment === "Wholesale" && (
+                        <button className="text-ink-500 hover:text-[var(--accent)] text-xs mr-3" onClick={() => setEditingBranchesFor(editingBranchesFor === row.customer.id ? null : row.customer.id)}>
+                          {editingBranchesFor === row.customer.id ? "close" : "branches"}
+                        </button>
+                      )}
                       {row.customer.segment === "Wholesale" && (
                         <button className="text-ink-500 hover:text-[var(--accent)] text-xs mr-3" onClick={() => setEditingPricesFor(editingPricesFor === row.customer.id ? null : row.customer.id)}>
                           {editingPricesFor === row.customer.id ? "close" : "prices"}
@@ -242,6 +292,33 @@ export default function Customers() {
                       }}>remove</button>
                     </td>
                   </tr>
+                  {editingBranchesFor === row.customer.id && (
+                    <tr className="bg-ink-900/50">
+                      <td colSpan={8} className="p-4">
+                        <div className="chip text-ink-400 uppercase mb-2">Branches — each gets its own invoice number when you deliver to it</div>
+                        <div className="flex gap-2 max-w-md">
+                          <input
+                            className={inputCls}
+                            value={newBranchForExisting}
+                            onChange={(e) => setNewBranchForExisting(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addBranchToExisting(row.customer); } }}
+                            placeholder="e.g. Apapa Branch"
+                          />
+                          <button type="button" className="chip text-[var(--accent)] shrink-0" onClick={() => addBranchToExisting(row.customer)}>+ add</button>
+                        </div>
+                        {(row.customer.branches?.length > 0) && (
+                          <div className="flex flex-wrap gap-1.5 mt-3">
+                            {row.customer.branches.map((b) => (
+                              <span key={b} className="chip bg-ink-900 border border-ink-700 rounded px-2 py-0.5 text-ink-300 flex items-center gap-1.5">
+                                {b}
+                                <button type="button" className="text-ink-500 hover:text-[var(--accent)]" onClick={() => removeBranchFromExisting(row.customer, b)}>×</button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                   {editingPricesFor === row.customer.id && (
                     <tr className="bg-ink-900/50">
                       <td colSpan={8} className="p-4">

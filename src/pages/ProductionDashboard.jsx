@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp, useMoney } from "../lib/AppContext";
-import { materialLedger, productionRunCosts, productionLosses, runsAwaitingCount, inRange } from "../lib/calc";
+import { materialLedger, productionRunCosts, productionLosses, runsAwaitingCount, inRange, sortByDateDesc } from "../lib/calc";
 import StatCard from "../components/StatCard";
 import DateRangeFilter from "../components/DateRangeFilter";
 import Panel from "../components/Panel";
@@ -110,7 +110,7 @@ export default function ProductionDashboard() {
             </tr>
           </thead>
           <tbody>
-            {[...lossRows].reverse().map((r, i) => (
+            {sortByDateDesc(lossRows, "date").map((r, i) => (
               <tr key={i} className="text-ink-200 border-b border-ink-700/60">
                 <td className="py-1.5 pr-4 chip">{r.date}</td>
                 <td className="py-1.5 pr-4 chip">{r.batchCode}</td>

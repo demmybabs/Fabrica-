@@ -20,9 +20,12 @@ create table app_settings (
   currency jsonb default '{"code":"NGN","symbol":"₦"}'::jsonb,
   segments text[] default array['Retail','Wholesale'],
   wholesale_sub_categories text[] default array['Supermarket','Distributor','Grocery store','Pharmacy'],
+  expense_categories text[] default array['Rent','Salaries & wages','Utilities','Transport & logistics','Marketing','Professional fees','Repairs & maintenance','Insurance','Bank charges','Other'],
   custom_units jsonb default '{}'::jsonb,
   themes jsonb default '{}'::jsonb,
   vat_rate numeric default 7.5,
+  receivables_days numeric default 30,
+  payables_days numeric default 30,
   constraint single_row check (id = 1)
 );
 insert into app_settings (id) values (1);
@@ -45,6 +48,7 @@ create table supply_batches (
   amount_paid numeric default 0,
   date_received date not null default current_date,
   expiry_date date,
+  payables_days numeric,
   notes text
 );
 
@@ -79,6 +83,7 @@ create table customers (
   segment text default 'Retail',
   sub_category text,
   branch text,
+  branches text[] default array[]::text[],
   state text,
   city text,
   email text,
@@ -90,6 +95,7 @@ create table customers (
 create table sales_orders (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid references customers(id),
+  branch text,
   date date not null default current_date,
   payment_mode text default 'Cash',
   amount_paid numeric,
@@ -97,6 +103,14 @@ create table sales_orders (
   invoice_number text,
   vat_rate numeric default 0,
   vat_amount numeric default 0,
+  receivables_days numeric,
+  -- Sale-or-Return (consignment): sale_type is 'sale_or_return' or null
+  -- for an ordinary sale; closed/closed_date mark when it stopped being
+  -- open (no revenue is recognized until then) — see lib/calc.js. Any
+  -- per-item quantity_returned lives inside `items` (jsonb) itself.
+  sale_type text,
+  closed boolean,
+  closed_date date,
   items jsonb default '[]'::jsonb
 );
 
@@ -159,8 +173,24 @@ create table equity_transactions (
   id uuid primary key default gen_random_uuid(),
   date date not null default current_date,
   type text not null check (type in ('contribution', 'drawing')),
+  holder text not null default 'owner' check (holder in ('owner', 'investor')),
   amount numeric not null,
   notes text
+);
+
+-- A simple debt register — kept entirely separate from equity, since a
+-- loan carries a repayment obligation and interest that an ownership
+-- stake doesn't.
+create table loans (
+  id uuid primary key default gen_random_uuid(),
+  lender text not null,
+  principal numeric not null,
+  start_date date not null default current_date,
+  interest_rate numeric default 0,
+  term_months numeric,
+  notes text,
+  repayments jsonb not null default '[]'::jsonb,
+  created_at timestamptz default now()
 );
 
 -- Row level security: simple "must be signed in" check, same rule on
@@ -178,6 +208,7 @@ alter table journal_entries enable row level security;
 alter table operating_expenses enable row level security;
 alter table fixed_assets enable row level security;
 alter table equity_transactions enable row level security;
+alter table loans enable row level security;
 
 create policy authenticated_all on app_settings for all using (auth.uid() is not null);
 create policy authenticated_all on suppliers for all using (auth.uid() is not null);
@@ -192,6 +223,7 @@ create policy authenticated_all on journal_entries for all using (auth.uid() is 
 create policy authenticated_all on operating_expenses for all using (auth.uid() is not null);
 create policy authenticated_all on fixed_assets for all using (auth.uid() is not null);
 create policy authenticated_all on equity_transactions for all using (auth.uid() is not null);
+create policy authenticated_all on loans for all using (auth.uid() is not null);
 
 -- Seed the chart of accounts (fixed reference list the app relies on).
 insert into chart_of_accounts (code, name, type, normal_balance) values
@@ -202,13 +234,17 @@ insert into chart_of_accounts (code, name, type, normal_balance) values
   ('1300', 'Fixed Assets, at cost', 'asset', 'debit'),
   ('1310', 'Accumulated Depreciation', 'asset', 'credit'),
   ('2000', 'Accounts Payable', 'liability', 'credit'),
+  ('2050', 'Loans Payable', 'liability', 'credit'),
   ('2100', 'VAT Payable', 'liability', 'credit'),
   ('2200', 'Accrued Expenses', 'liability', 'credit'),
   ('3000', 'Owner''s Capital', 'equity', 'credit'),
   ('3100', 'Owner''s Drawings', 'equity', 'debit'),
+  ('3050', 'Investor Capital', 'equity', 'credit'),
+  ('3150', 'Investor Drawings / Redemptions', 'equity', 'debit'),
   ('4000', 'Sales Revenue', 'revenue', 'credit'),
   ('5000', 'Cost of Goods Sold', 'cogs', 'debit'),
   ('6000', 'Operating Expenses', 'expense', 'debit'),
+  ('6100', 'Interest Expense', 'expense', 'debit'),
   ('6200', 'Depreciation Expense', 'expense', 'debit'),
   ('6300', 'Marketing / CSR — Product Giveaways', 'expense', 'debit'),
   ('6400', 'Production Loss', 'expense', 'debit'),

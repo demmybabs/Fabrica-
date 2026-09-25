@@ -58,13 +58,17 @@ function dateStamp(dateStr) {
 }
 
 // Builds the base invoice number (before checking for same-day
-// collisions — see makeUniqueInvoiceNumber below).
-export function buildInvoiceNumber(customer, dateStr) {
+// collisions — see makeUniqueInvoiceNumber below). A store with several
+// branches passes which one this order is for (branchOverride) so each
+// branch's deliveries get their own distinct invoice sequence; falls back
+// to the customer's own single branch/sub-category for a store that only
+// has one location.
+export function buildInvoiceNumber(customer, dateStr, branchOverride) {
   const stamp = dateStamp(dateStr);
   if (!customer) return `INV-${stamp}`;
   if (customer.segment === "Wholesale") {
     const store = nameInitials(customer.name);
-    const branch = nameInitials(customer.branch || customer.subCategory || "");
+    const branch = nameInitials(branchOverride || customer.branch || customer.subCategory || "");
     return `${store}-${branch}${stamp}`;
   }
   return `${nameInitials(customer.name)}-${stamp}`;
@@ -75,8 +79,8 @@ export function buildInvoiceNumber(customer, dateStr) {
 // the first time that would happen, so every invoice number stays unique
 // without changing the format for the common case (one sale per customer
 // per day).
-export function makeUniqueInvoiceNumber(customer, dateStr, existingNumbers) {
-  const base = buildInvoiceNumber(customer, dateStr);
+export function makeUniqueInvoiceNumber(customer, dateStr, existingNumbers, branchOverride) {
+  const base = buildInvoiceNumber(customer, dateStr, branchOverride);
   const taken = new Set((existingNumbers || []).filter(Boolean));
   if (!taken.has(base)) return base;
   let n = 2;

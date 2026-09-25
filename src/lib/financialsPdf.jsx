@@ -1,6 +1,8 @@
 // Renders the three financial statements as a single, well-designed PDF —
 // client-side only (react-pdf), since Fabrica has no backend server.
 import { Document, Page, Text, View, StyleSheet, pdf } from "@react-pdf/renderer";
+import { CHART_OF_ACCOUNTS } from "./ledger";
+import { incomeStatementAnalysis, balanceSheetAnalysis, cashFlowAnalysis, financialNotes } from "./financialAnalysis";
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 10, fontFamily: "Helvetica", color: "#1a1a1a" },
@@ -22,6 +24,17 @@ const styles = StyleSheet.create({
   column: { flex: 1 },
   footer: { position: "absolute", bottom: 24, left: 40, right: 40, fontSize: 8, color: "#999999", textAlign: "center", borderTop: "0.5pt solid #eeeeee", paddingTop: 6 },
   notice: { fontSize: 8.5, color: "#555555", backgroundColor: "#f5f5f5", padding: 8, marginTop: 14, lineHeight: 1.4 },
+  analysisHeading: { fontSize: 10.5, fontWeight: 700, marginTop: 16, marginBottom: 6 },
+  analysisPara: { fontSize: 9, lineHeight: 1.5, marginBottom: 7, color: "#2a2a2a" },
+  noteHeading: { fontSize: 9.5, fontWeight: 700, marginTop: 11, marginBottom: 3 },
+  notePara: { fontSize: 8.8, lineHeight: 1.45, color: "#333333" },
+  coaTableHeader: { flexDirection: "row", borderBottom: "1pt solid #1a1a1a", paddingBottom: 4, marginTop: 10 },
+  coaRow: { flexDirection: "row", borderBottom: "0.5pt solid #dddddd", paddingVertical: 4 },
+  coaCode: { width: 50, fontSize: 9 },
+  coaName: { flex: 1, fontSize: 9 },
+  coaType: { width: 70, fontSize: 9, textTransform: "capitalize" },
+  coaBalance: { width: 60, fontSize: 9, textTransform: "capitalize" },
+  coaHeaderText: { fontSize: 8, fontWeight: 700, color: "#666666", textTransform: "uppercase" },
 });
 
 function Row({ label, value, strong, indent, divider, large, muted }) {
@@ -44,6 +57,15 @@ function Header({ branding, title, sub }) {
   );
 }
 
+function Analysis({ title, paragraphs }) {
+  return (
+    <View>
+      <Text style={styles.analysisHeading}>{title}</Text>
+      {paragraphs.map((p, i) => <Text key={i} style={styles.analysisPara}>{p}</Text>)}
+    </View>
+  );
+}
+
 function Footer({ generatedAt }) {
   return (
     <Text style={styles.footer}>
@@ -54,6 +76,9 @@ function Footer({ generatedAt }) {
 
 export function FinancialStatementsDocument({ branding, money, income, balance, cashFlow, generatedAt }) {
   const opex = income.operatingExpenses;
+  const incomeAnalysis = incomeStatementAnalysis({ income, money });
+  const balanceAnalysis = balanceSheetAnalysis({ balance, money });
+  const cashFlowAnalysisParas = cashFlowAnalysis({ cashFlow, money });
   return (
     <Document title={`${branding?.name || "Fabrica"} — Financial Statements`}>
       <Page size="A4" style={styles.page}>
@@ -72,7 +97,11 @@ export function FinancialStatementsDocument({ branding, money, income, balance, 
         <Row label="Depreciation" value={`(${money(opex.depreciationTotal)})`} indent />
         <Row label="Total operating expenses" value={`(${money(opex.total_all)})`} strong divider />
 
+        <Row label="Operating income" value={money(income.operatingIncome)} strong divider />
+        <Row label="Interest expense" value={`(${money(income.interestExpense)})`} indent />
         <Row label="Net income" value={money(income.netIncome)} strong large divider />
+
+        <Analysis title="Financial Analysis — Income Statement" paragraphs={incomeAnalysis} />
 
         <Footer generatedAt={generatedAt} />
       </Page>
@@ -82,25 +111,41 @@ export function FinancialStatementsDocument({ branding, money, income, balance, 
 
         <View style={styles.columns}>
           <View style={styles.column}>
-            <Text style={styles.sectionLabel}>Assets</Text>
-            <Row label="Cash & Bank" value={money(balance.assets.cashAndBank)} />
-            <Row label="Accounts receivable" value={money(balance.assets.accountsReceivable)} />
-            <Row label="Inventory — raw materials" value={money(balance.assets.inventoryRawMaterials)} />
-            <Row label="Inventory — finished goods" value={money(balance.assets.inventoryFinishedGoods)} />
-            <Row label="Fixed assets, at cost" value={money(balance.assets.fixedAssetsCost)} />
-            <Row label="Accumulated depreciation" value={`(${money(balance.assets.accumulatedDepreciation)})`} indent />
-            <Row label="Total assets" value={money(balance.assets.total)} strong divider />
+            <Text style={styles.sectionLabel}>Current assets</Text>
+            <Row label="Cash & Bank" value={money(balance.assets.current.cashAndBank)} />
+            <Row label="Accounts receivable" value={money(balance.assets.current.accountsReceivable)} />
+            <Row label="Inventory — raw materials" value={money(balance.assets.current.inventoryRawMaterials)} />
+            <Row label="Inventory — finished goods" value={money(balance.assets.current.inventoryFinishedGoods)} />
+            {balance.assets.current.goodsOnConsignment > 0 && <Row label="Goods on consignment (open Sale or Return)" value={money(balance.assets.current.goodsOnConsignment)} />}
+            <Row label="Total current assets" value={money(balance.assets.current.total)} strong divider />
+
+            <Text style={styles.sectionLabel}>Non-current assets</Text>
+            <Row label="Fixed assets, at cost" value={money(balance.assets.nonCurrent.fixedAssetsCost)} />
+            <Row label="Accumulated depreciation" value={`(${money(balance.assets.nonCurrent.accumulatedDepreciation)})`} indent />
+            <Row label="Total non-current assets" value={money(balance.assets.nonCurrent.total)} strong divider />
+
+            <Row label="Total assets" value={money(balance.assets.total)} strong large divider />
           </View>
           <View style={styles.column}>
-            <Text style={styles.sectionLabel}>Liabilities</Text>
-            <Row label="Accounts payable" value={money(balance.liabilities.accountsPayable)} />
-            <Row label="VAT payable" value={money(balance.liabilities.vatPayable)} />
-            <Row label="Accrued expenses" value={money(balance.liabilities.accruedExpenses)} />
+            <Text style={styles.sectionLabel}>Current liabilities</Text>
+            <Row label="Accounts payable" value={money(balance.liabilities.current.accountsPayable)} />
+            <Row label="Loans payable (current portion)" value={money(balance.liabilities.current.loansPayable)} />
+            <Row label="VAT payable" value={money(balance.liabilities.current.vatPayable)} />
+            <Row label="Accrued expenses" value={money(balance.liabilities.current.accruedExpenses)} />
+            <Row label="Total current liabilities" value={money(balance.liabilities.current.total)} strong divider />
+
+            <Text style={styles.sectionLabel}>Non-current liabilities</Text>
+            <Row label="Loans payable (long-term)" value={money(balance.liabilities.nonCurrent.loansPayable)} />
+            <Row label="Total non-current liabilities" value={money(balance.liabilities.nonCurrent.total)} strong divider />
+
             <Row label="Total liabilities" value={money(balance.liabilities.total)} strong divider />
 
             <Text style={styles.sectionLabel}>Equity</Text>
             <Row label="Owner's capital" value={money(balance.equity.ownersCapital)} />
             <Row label="Owner's drawings" value={`(${money(balance.equity.ownersDrawings)})`} indent />
+            <Row label="Investor capital" value={money(balance.equity.investorCapital)} />
+            <Row label="Investor drawings / redemptions" value={`(${money(balance.equity.investorDrawings)})`} indent />
+            <Row label="Opening balance equity" value={money(balance.equity.openingBalanceEquity)} />
             <Row label="Retained earnings" value={money(balance.equity.retainedEarnings)} />
             <Row label="Total equity" value={money(balance.equity.total)} strong divider />
           </View>
@@ -114,6 +159,8 @@ export function FinancialStatementsDocument({ branding, money, income, balance, 
           Financials module went live, not backfilled; Revenue, receivables, payables, and inventory
           value reflect full history. Retained Earnings absorbs the difference so the sheet balances.
         </Text>
+
+        <Analysis title="Financial Analysis — Balance Sheet" paragraphs={balanceAnalysis} />
 
         <Footer generatedAt={generatedAt} />
       </Page>
@@ -137,6 +184,38 @@ export function FinancialStatementsDocument({ branding, money, income, balance, 
           live — it does not reconstruct cash activity from before then.
         </Text>
 
+        <Analysis title="Financial Analysis — Cash Flow" paragraphs={cashFlowAnalysisParas} />
+
+        <Footer generatedAt={generatedAt} />
+      </Page>
+
+      <Page size="A4" style={styles.page}>
+        <Header branding={branding} title="Notes to the Financial Statements" sub="Basis of preparation and accounting policies" />
+        {financialNotes.map((n) => (
+          <View key={n.heading}>
+            <Text style={styles.noteHeading}>{n.heading}</Text>
+            <Text style={styles.notePara}>{n.body}</Text>
+          </View>
+        ))}
+        <Footer generatedAt={generatedAt} />
+      </Page>
+
+      <Page size="A4" style={styles.page}>
+        <Header branding={branding} title="Chart of Accounts" sub="Every account the ledger posts to, underlying the statements above" />
+        <View style={styles.coaTableHeader}>
+          <Text style={[styles.coaCode, styles.coaHeaderText]}>Code</Text>
+          <Text style={[styles.coaName, styles.coaHeaderText]}>Account name</Text>
+          <Text style={[styles.coaType, styles.coaHeaderText]}>Type</Text>
+          <Text style={[styles.coaBalance, styles.coaHeaderText]}>Normal balance</Text>
+        </View>
+        {CHART_OF_ACCOUNTS.map((a) => (
+          <View key={a.code} style={styles.coaRow}>
+            <Text style={styles.coaCode}>{a.code}</Text>
+            <Text style={styles.coaName}>{a.name}</Text>
+            <Text style={styles.coaType}>{a.type}</Text>
+            <Text style={styles.coaBalance}>{a.normalBalance}</Text>
+          </View>
+        ))}
         <Footer generatedAt={generatedAt} />
       </Page>
     </Document>

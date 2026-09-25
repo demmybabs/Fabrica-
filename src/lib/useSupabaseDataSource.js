@@ -17,23 +17,27 @@ const TABLES = {
   operatingExpenses: "operating_expenses",
   fixedAssets: "fixed_assets",
   equityTransactions: "equity_transactions",
+  loans: "loans",
 };
 
 const DEFAULTS = {
   customUnits: {},
   segments: ["Retail", "Wholesale"],
   wholesaleSubCategories: ["Supermarket", "Distributor", "Grocery store", "Pharmacy"],
+  expenseCategories: ["Rent", "Salaries & wages", "Utilities", "Transport & logistics", "Marketing", "Professional fees", "Repairs & maintenance", "Insurance", "Bank charges", "Other"],
   themes: {},
   branding: { name: "Fabrica", tagline: "production line control", logoDataUrl: null },
   currency: { code: "NGN", symbol: "₦" },
   vatRate: 7.5,
+  receivablesDays: 30,
+  payablesDays: 30,
 };
 
 const EMPTY = {
   suppliers: [], supplyBatches: [], products: [], productionRuns: [],
   customers: [], salesOrders: [], spoilage: [], activeRole: "owner",
   journalEntries: [], operatingExpenses: [], fixedAssets: [], equityTransactions: [],
-  chartOfAccounts: [],
+  chartOfAccounts: [], loans: [],
   ...DEFAULTS,
 };
 
@@ -73,7 +77,7 @@ export function useSupabaseDataSource() {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     try {
-      const [suppliers, supplyBatches, products, productionRuns, customers, salesOrders, spoilage, journalEntries, operatingExpenses, fixedAssets, equityTransactions, chartOfAccounts, settingsRes] = await Promise.all([
+      const [suppliers, supplyBatches, products, productionRuns, customers, salesOrders, spoilage, journalEntries, operatingExpenses, fixedAssets, equityTransactions, loans, chartOfAccounts, settingsRes] = await Promise.all([
         supabase.from("suppliers").select("*"),
         supabase.from("supply_batches").select("*"),
         supabase.from("products").select("*"),
@@ -85,6 +89,7 @@ export function useSupabaseDataSource() {
         supabase.from("operating_expenses").select("*"),
         supabase.from("fixed_assets").select("*"),
         supabase.from("equity_transactions").select("*"),
+        supabase.from("loans").select("*"),
         supabase.from("chart_of_accounts").select("*"),
         supabase.from("app_settings").select("*").eq("id", 1).single(),
       ]);
@@ -101,14 +106,18 @@ export function useSupabaseDataSource() {
         operatingExpenses: (operatingExpenses.data || []).map(toCamel),
         fixedAssets: (fixedAssets.data || []).map(toCamel),
         equityTransactions: (equityTransactions.data || []).map(toCamel),
+        loans: (loans.data || []).map(toCamel),
         chartOfAccounts: (chartOfAccounts.data || []).map(toCamel),
         customUnits: settings.customUnits ?? DEFAULTS.customUnits,
         segments: settings.segments ?? DEFAULTS.segments,
         wholesaleSubCategories: settings.wholesaleSubCategories ?? DEFAULTS.wholesaleSubCategories,
+        expenseCategories: settings.expenseCategories ?? DEFAULTS.expenseCategories,
         themes: settings.themes ?? DEFAULTS.themes,
         branding: settings.branding ?? DEFAULTS.branding,
         currency: settings.currency ?? DEFAULTS.currency,
         vatRate: settings.vatRate ?? DEFAULTS.vatRate,
+        receivablesDays: settings.receivablesDays ?? DEFAULTS.receivablesDays,
+        payablesDays: settings.payablesDays ?? DEFAULTS.payablesDays,
         activeRole: "owner",
       });
     } catch (e) {
@@ -130,7 +139,7 @@ export function useSupabaseDataSource() {
     suppliers: "suppliers", supply_batches: "supplyBatches", products: "products", production_runs: "productionRuns",
     customers: "customers", sales_orders: "salesOrders", spoilage: "spoilage",
     journal_entries: "journalEntries", operating_expenses: "operatingExpenses", fixed_assets: "fixedAssets",
-    equity_transactions: "equityTransactions", chart_of_accounts: "chartOfAccounts",
+    equity_transactions: "equityTransactions", loans: "loans", chart_of_accounts: "chartOfAccounts",
   };
   const fetchTable = useCallback(async (table) => {
     if (table === "app_settings") {
@@ -142,10 +151,13 @@ export function useSupabaseDataSource() {
         customUnits: settings.customUnits ?? DEFAULTS.customUnits,
         segments: settings.segments ?? DEFAULTS.segments,
         wholesaleSubCategories: settings.wholesaleSubCategories ?? DEFAULTS.wholesaleSubCategories,
+        expenseCategories: settings.expenseCategories ?? DEFAULTS.expenseCategories,
         themes: settings.themes ?? DEFAULTS.themes,
         branding: settings.branding ?? DEFAULTS.branding,
         currency: settings.currency ?? DEFAULTS.currency,
         vatRate: settings.vatRate ?? DEFAULTS.vatRate,
+        receivablesDays: settings.receivablesDays ?? DEFAULTS.receivablesDays,
+        payablesDays: settings.payablesDays ?? DEFAULTS.payablesDays,
       }));
       return;
     }
@@ -242,9 +254,15 @@ export function useSupabaseDataSource() {
     if (data.wholesaleSubCategories.includes(name)) return;
     updateSettings({ wholesaleSubCategories: [...data.wholesaleSubCategories, name] });
   };
+  const addExpenseCategory = (name) => {
+    if ((data.expenseCategories || []).includes(name)) return;
+    updateSettings({ expenseCategories: [...(data.expenseCategories || []), name] });
+  };
   const setBranding = (patch) => updateSettings({ branding: { ...data.branding, ...patch } });
   const setCurrency = (currency) => updateSettings({ currency });
   const setVatRate = (rate) => updateSettings({ vatRate: rate });
+  const setReceivablesDays = (days) => updateSettings({ receivablesDays: days });
+  const setPayablesDays = (days) => updateSettings({ payablesDays: days });
 
   const addIngredientToRecipe = (productId, itemName) => {
     const product = data.products.find((p) => p.id === productId);
@@ -258,7 +276,7 @@ export function useSupabaseDataSource() {
     }
     await supabase.from("app_settings").update(toSnake({
       branding: DEFAULTS.branding, currency: DEFAULTS.currency, segments: DEFAULTS.segments,
-      wholesaleSubCategories: DEFAULTS.wholesaleSubCategories, customUnits: {}, themes: {},
+      wholesaleSubCategories: DEFAULTS.wholesaleSubCategories, expenseCategories: DEFAULTS.expenseCategories, customUnits: {}, themes: {},
     })).eq("id", 1);
     fetchAll();
   };
@@ -269,7 +287,7 @@ export function useSupabaseDataSource() {
 
   return {
     data, loaded, add, remove, update, setCustomUnits, setActiveRole, updateTheme,
-    addIngredientToRecipe, addSegment, addWholesaleSubCategory, resetToSeed, clearAllData,
-    setCurrency, setBranding, setVatRate, writeError, clearWriteError: () => setWriteError(null),
+    addIngredientToRecipe, addSegment, addWholesaleSubCategory, addExpenseCategory, resetToSeed, clearAllData,
+    setCurrency, setBranding, setVatRate, setReceivablesDays, setPayablesDays, writeError, clearWriteError: () => setWriteError(null),
   };
 }

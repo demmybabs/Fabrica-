@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApp, useMoney } from "../lib/AppContext";
 import { useConfirm } from "../lib/ConfirmContext";
-import { finishedGoodsInventory, materialLedger, estimateSpoilageValue } from "../lib/calc";
+import { finishedGoodsInventory, materialLedger, estimateSpoilageValue, sortByDateDesc } from "../lib/calc";
 import { allUnits, formatQuantity } from "../lib/uom";
 import { postJournalEntry, journalForSpoilage } from "../lib/ledger";
 import Panel from "../components/Panel";
@@ -189,7 +189,7 @@ export default function Inventory() {
               </tr>
             </thead>
             <tbody>
-              {[...(data.spoilage || [])].reverse().map((s) => {
+              {sortByDateDesc(data.spoilage, "date").map((s) => {
                 const product = s.kind === "product" ? data.products.find((p) => p.id === s.productId) : null;
                 return (
                   <tr key={s.id} className="border-b border-ink-700/60 text-ink-200">

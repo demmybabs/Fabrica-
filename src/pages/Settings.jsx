@@ -12,7 +12,7 @@ import { Field, inputCls, btnCls, btnGhostCls } from "../components/Field";
 const blank = { category: "weight", unit: "", baseFactor: "" };
 
 export default function Settings() {
-  const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency, setVatRate } = useApp();
+  const { data, setCustomUnits, resetToSeed, clearAllData, updateTheme, setActiveRole, setBranding, setCurrency, setVatRate, setReceivablesDays, setPayablesDays } = useApp();
   const confirmAction = useConfirm();
   const [form, setForm] = useState(blank);
   const [themeRole, setThemeRole] = useState(data.activeRole);
@@ -206,10 +206,35 @@ export default function Settings() {
               }}
             />
           </Field>
+          <Field label="Default receivables days">
+            <input
+              type="number" min="0" step="1"
+              className={inputCls}
+              defaultValue={data.receivablesDays ?? 30}
+              key={data.receivablesDays}
+              onBlur={(e) => {
+                const next = parseFloat(e.target.value) || 0;
+                if (next !== (data.receivablesDays ?? 30)) setReceivablesDays(next);
+              }}
+            />
+          </Field>
+          <Field label="Default payables days">
+            <input
+              type="number" min="0" step="1"
+              className={inputCls}
+              defaultValue={data.payablesDays ?? 30}
+              key={data.payablesDays}
+              onBlur={(e) => {
+                const next = parseFloat(e.target.value) || 0;
+                if (next !== (data.payablesDays ?? 30)) setPayablesDays(next);
+              }}
+            />
+          </Field>
         </div>
         <p className="text-xs text-ink-500 mt-3">
-          The default VAT rate prefills the VAT field when recording a sale — it can still be
-          changed for any individual sale.
+          The default VAT rate prefills the VAT field when recording a sale. Receivables/payables
+          days set how long customers and suppliers have to settle a balance before it's due —
+          both can still be overridden for any individual sale or delivery.
         </p>
       </Panel>
 
