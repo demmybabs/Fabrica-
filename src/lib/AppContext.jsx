@@ -5,12 +5,12 @@ import { useSupabaseDataSource } from "./useSupabaseDataSource";
 
 const AppContext = createContext(null);
 
-export function AppProvider({ children }) {
+export function AppProvider({ children, orgId }) {
   // supabaseEnabled is a build-time constant (from env vars), never
   // changes while the app is running, so picking a hook based on it is
   // safe even though it looks conditional.
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const source = supabaseEnabled ? useSupabaseDataSource() : useLocalDataSource();
+  const source = supabaseEnabled ? useSupabaseDataSource(orgId) : useLocalDataSource();
 
   if (!source.loaded) {
     return (

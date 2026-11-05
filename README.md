@@ -60,25 +60,71 @@ app.
 - Cost-per-unit on a sale uses the SKU's *current* weighted-average cost,
   not the cost at the moment that specific unit was produced.
 - No multi-branch support yet — this is single-location.
-- No user accounts or authentication — anyone with the link can edit.
+- Inside an organisation there are only two roles (admin / member). The
+  older per-department roles (supply, sales, etc.) are only used in the
+  local-storage demo mode.
 
-## Going live with Supabase (shared, synced data)
+## Going live with Supabase (shared, multi-organisation)
 
 By default Fabrica stores everything in the browser's local storage — fine
-for solo testing, but each device ends up with its own separate copy. To
-make data live and synced across every device, in single-user mode (one
-account, full access, no roles to manage):
+for solo testing. Connected to Supabase it becomes a multi-organisation
+web app: every business gets its own, fully separate Fabrica, with its own
+people; a **super admin** console sits above them all.
 
-1. Create a project at [supabase.com](https://supabase.com) and run the
-   entire contents of `src/data/schema.sql` in its SQL editor.
-2. Create your own login under Authentication → Users (email + password,
-   with "Auto Confirm User" checked).
-3. Copy `.env.example` to `.env` and fill in your project's URL and anon
-   key from Supabase → Settings → API.
-4. `npm run dev` (or redeploy on Vercel, after adding the same two
-   variables under Project Settings → Environment Variables — Vite bakes
-   them in at build time, so a redeploy is required after adding them).
+### How it works
 
-Once connected, a login screen replaces the old "Viewing as" switcher.
-Sign in with the account from step 2, and every device signed in reads
-and writes the same shared data in real time.
+- **Super admin** (you): creates organisations, invites each one's first
+  admin, tracks plan/billing status, can suspend or delete an organisation,
+  and can **Open** any organisation's Fabrica to see and edit its data.
+- **Organisation admin**: uses every module, edits Settings, and invites or
+  removes people on the **Team** page.
+- **Member**: uses every module. (Settings and Team are hidden.)
+- People sign in with **Google** or **email + password**. An invitation is
+  just "this email may join this organisation": when someone signs in with
+  that (confirmed) email they are attached to it automatically.
+- Data separation is enforced inside the database (row-level security on
+  an `org_id` column), not just in the screens.
+
+### Setup
+
+1. Create a project at [supabase.com](https://supabase.com). In the SQL
+   editor run `src/data/schema.sql`, then each `migration_v20` … `v27`
+   file if your project predates them (a brand-new project only needs
+   `schema.sql`), then finally **`src/data/migration_v28.sql`**.
+   Before running v28, change `CHANGE_ME@gmail.com` on its first line to
+   your own email. You become super admin and admin of the first
+   organisation, which receives all the data you already have.
+2. **Authentication → Providers → Email**: keep **Confirm email ON**.
+   This is required — invitations are matched to confirmed emails, and
+   turning confirmation off would let anyone claim an invited address.
+3. **Authentication → Providers → Google**: create a "Web application"
+   OAuth client in Google Cloud Console, add Supabase's callback URL
+   (`https://<project-ref>.supabase.co/auth/v1/callback`, shown on that
+   Supabase page) as an authorised redirect URI, then paste the Client ID
+   and Secret into Supabase and enable it.
+4. **Authentication → URL Configuration**: set **Site URL** to your Vercel
+   address and add it (and `http://localhost:5173` for local work) under
+   **Redirect URLs**. For Vercel preview deployments add
+   `https://*-<your-team>.vercel.app/**` too.
+5. **Authentication → Providers**: switch **Anonymous Sign-Ins off**
+   (after the new version is deployed).
+6. Copy `.env.example` to `.env` and fill in the project URL and anon key
+   from Supabase → Settings → API. On Vercel add the same two variables
+   under Project Settings → Environment Variables and redeploy (Vite bakes
+   them in at build time).
+7. Open the app, sign in with the email from step 1, and you land in the
+   super-admin console. Create an organisation, enter the first admin's
+   email, and tell them to sign in.
+
+### Notes
+
+- No emails are sent for invitations; the person is told to sign in with
+  the invited address. Email confirmation and password-reset emails come
+  from Supabase's built-in mailer, which is rate-limited — set up a custom
+  SMTP sender under Authentication → SMTP before onboarding many people.
+- Billing fields (plan, status, trial end, renewal date, notes) are a
+  record you maintain by hand. No payment provider is connected and billing
+  status does not lock anyone out; use **Suspend** for that.
+- The Settings page is hidden from members in the screens; the database
+  itself lets any member of an organisation update that organisation's
+  settings (needed so everyone can add categories on the fly).

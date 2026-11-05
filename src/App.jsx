@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppAuthProvider, useAuth } from "./lib/AuthContext";
 import { supabaseEnabled } from "./lib/supabaseClient";
 import { AppProvider } from "./lib/AppContext";
@@ -19,38 +19,42 @@ import Customers from "./pages/Customers";
 import CustomerPortal from "./pages/CustomerPortal";
 import Financials from "./pages/Financials";
 import Settings from "./pages/Settings";
+import Admin from "./pages/Admin";
+import Team from "./pages/Team";
+import { LoginScreen, NoAccessScreen, SetPasswordScreen, SuspendedScreen, OrgPicker } from "./pages/Login";
 
-function AuthGate({ children }) {
-  const { loading, error } = useAuth();
-
-  if (!supabaseEnabled) return children; // local-only mode
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-ink-950 text-ink-400 px-6 text-center">
-        <div className="chip max-w-md">
-          Couldn't connect to the shared database ({error}). Check that Anonymous Sign-Ins is
-          turned on in Supabase → Authentication → Providers.
-        </div>
-      </div>
-    );
-  }
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-ink-950 text-ink-400">
-        <div className="chip">Connecting…</div>
-      </div>
-    );
-  }
-  return children;
+function Connecting() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-ink-950 text-ink-400">
+      <div className="chip">Connecting…</div>
+    </div>
+  );
 }
 
-function AppShell() {
+// Decides what a visitor sees: sign-in, "no workspace", an organisation
+// picker, the super-admin console, a suspended notice, or the app itself.
+function AuthGate() {
+  const { loading, session, access, recovering, isSuperAdmin, memberships, activeOrg, isOrgAdmin } = useAuth();
+
+  if (!supabaseEnabled) return <AppShell orgId={null} isOrgAdmin />; // local-only mode
+
+  if (loading) return <Connecting />;
+  if (!session || !session.user?.email) return <LoginScreen />; // also covers leftover anonymous sessions
+  if (recovering) return <SetPasswordScreen />;
+  if (!access) return <Connecting />;
+  if (!isSuperAdmin && memberships.length === 0) return <NoAccessScreen />;
+
+  if (!activeOrg) return isSuperAdmin ? <Admin /> : <OrgPicker />;
+  if (activeOrg.status === "suspended" && !isSuperAdmin) return <SuspendedScreen />;
+
+  return <AppShell key={activeOrg.id} orgId={activeOrg.id} isOrgAdmin={isOrgAdmin} />;
+}
+
+function AppShell({ orgId, isOrgAdmin }) {
   return (
-    <AppProvider>
+    <AppProvider orgId={orgId}>
       <ThemeProvider>
-        <ConfirmProvider>
-          <HashRouter>
+        <HashRouter>
             <ErrorBanner />
             <div className="flex flex-col md:flex-row min-h-screen bg-ink-950 text-ink-100 font-body">
               <Sidebar />
@@ -68,12 +72,13 @@ function AppShell() {
                   <Route path="/customers" element={<Customers />} />
                   <Route path="/customer-portal" element={<CustomerPortal />} />
                   <Route path="/financials" element={<Financials />} />
-                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/settings" element={isOrgAdmin ? <Settings /> : <Navigate to="/" replace />} />
+                  <Route path="/team" element={supabaseEnabled && isOrgAdmin ? <Team /> : <Navigate to="/" replace />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </main>
             </div>
           </HashRouter>
-        </ConfirmProvider>
       </ThemeProvider>
     </AppProvider>
   );
@@ -82,9 +87,9 @@ function AppShell() {
 export default function App() {
   return (
     <AppAuthProvider>
-      <AuthGate>
-        <AppShell />
-      </AuthGate>
+      <ConfirmProvider>
+        <AuthGate />
+      </ConfirmProvider>
     </AppAuthProvider>
   );
 }

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useApp } from "../lib/AppContext";
 import { canAccess } from "../lib/access";
 import { supabaseEnabled } from "../lib/supabaseClient";
+import { useAuth } from "../lib/AuthContext";
 
 const allLinks = [
   { to: "/", label: "Overview", code: "00" },
@@ -14,19 +15,21 @@ const allLinks = [
   { to: "/customers", label: "Customers", code: "05" },
   { to: "/customer-portal", label: "My orders", code: "05a" },
   { to: "/financials", label: "Financials", code: "07" },
+  { to: "/team", label: "Team", code: "08" },
   { to: "/settings", label: "Settings", code: "06" },
 ];
 
 export default function Sidebar() {
   const { data } = useApp();
+  const { user, signOut, activeOrg, isSuperAdmin, memberships, isOrgAdmin, leaveOrg } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const role = data.activeRole;
-  // Single-user Supabase mode: one account, full access — show everything
-  // except the customer-portal stand-in, which only makes sense in the
-  // local multi-role demo mode.
+  // Shared (Supabase) mode: everyone in an organisation sees every module;
+  // only organisation admins also get Team and Settings. The customer-portal
+  // stand-in only makes sense in the local multi-role demo mode.
   const links = supabaseEnabled
-    ? allLinks.filter((l) => l.to !== "/customer-portal")
-    : allLinks.filter((l) => canAccess(role, l.to) || l.to === "/settings");
+    ? allLinks.filter((l) => l.to !== "/customer-portal" && (isOrgAdmin || (l.to !== "/settings" && l.to !== "/team")))
+    : allLinks.filter((l) => l.to !== "/team" && (canAccess(role, l.to) || l.to === "/settings"));
   const branding = data.branding || { name: "Fabrica", tagline: "production line control" };
 
   const content = (
@@ -61,6 +64,27 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      {supabaseEnabled && user?.email && (
+        <div className="px-5 py-3 border-t border-ink-700 space-y-1">
+          {activeOrg?.viaAdmin && (
+            <div className="chip text-brass-400 pb-1">Viewing {activeOrg.name} as super admin</div>
+          )}
+          <div className="text-xs text-ink-400 truncate" title={user.email}>{user.email}</div>
+          {isSuperAdmin && (
+            <button type="button" onClick={leaveOrg} className="block text-xs text-ink-300 hover:text-[var(--accent)]">
+              ← Super admin console
+            </button>
+          )}
+          {!isSuperAdmin && memberships.length > 1 && (
+            <button type="button" onClick={leaveOrg} className="block text-xs text-ink-300 hover:text-[var(--accent)]">
+              Switch organisation
+            </button>
+          )}
+          <button type="button" onClick={signOut} className="block text-xs text-ink-500 hover:text-[var(--accent)]">
+            Sign out
+          </button>
+        </div>
+      )}
       <div className="px-5 py-4 border-t border-ink-700 chip text-ink-600">
         Fabrica ERP · scaffold
       </div>

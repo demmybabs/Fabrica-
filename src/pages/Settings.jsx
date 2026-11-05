@@ -77,9 +77,9 @@ export default function Settings() {
               Connected — data is live and synced across every device
             </div>
             <p className="text-sm text-ink-400 leading-relaxed">
-              There's no login screen by design — this device connects to the shared database
-              automatically. Everything you see and enter here is the same data everyone else
-              sees, updated in real time.
+              This is your organisation's own workspace. Everything you see and enter here is
+              shared with the other people in your organisation, updated in real time, and is
+              never visible to any other organisation.
             </p>
           </div>
         ) : (
@@ -347,7 +347,7 @@ export default function Settings() {
             className="chip px-3 py-1.5 rounded border border-red-400 text-red-400 hover:bg-red-400/10"
             onClick={async () => {
               const warning = supabaseEnabled
-                ? "Clear ALL data — for EVERYONE, on every device, since this is a shared database? This can't be undone."
+                ? "Clear ALL of this organisation's data — for EVERYONE in it, on every device? This can't be undone."
                 : "Clear ALL data — suppliers, products, production, sales, customers, everything? This can't be undone.";
               if (await confirmAction(warning, { danger: true, confirmLabel: "Clear everything", requireTyped: "DELETE" })) clearAllData();
             }}
@@ -357,7 +357,7 @@ export default function Settings() {
         </div>
         <p className="text-xs text-ink-500 mt-3">
           {supabaseEnabled
-            ? "Data is stored in a shared Supabase database — every signed-in device sees the same records. \"Clear all data\" wipes it for everyone, not just this device."
+            ? "Data is stored in a shared Supabase database — everyone in your organisation sees the same records. \"Clear all data\" wipes this organisation's records for everyone in it, not just this device."
             : "Everything is stored in this browser's local storage — nothing leaves the device this is opened on. \"Clear all data\" wipes it to a blank slate (useful once you're done testing and ready to enter your real business data). \"Reset to example data\" reloads the sample granola-business dataset instead."}
         </p>
       </Panel>

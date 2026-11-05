@@ -68,31 +68,34 @@ function friendlyError(error, verb) {
 // database, so every signed-in device sees the same data. Falls back to
 // nothing meaningful if supabaseClient.js couldn't build a client; App.jsx
 // only mounts this when supabaseEnabled is true.
-export function useSupabaseDataSource() {
+export function useSupabaseDataSource(orgId) {
   const [data, setData] = useState(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [writeError, setWriteError] = useState(null);
   const fetchingRef = useRef(false);
+  // Latest data, readable from the realtime handler without re-subscribing.
+  const dataRef = useRef(EMPTY);
+  dataRef.current = data;
 
   const fetchAll = useCallback(async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     try {
       const [suppliers, supplyBatches, products, productionRuns, customers, salesOrders, spoilage, journalEntries, operatingExpenses, fixedAssets, equityTransactions, loans, chartOfAccounts, settingsRes] = await Promise.all([
-        supabase.from("suppliers").select("*"),
-        supabase.from("supply_batches").select("*"),
-        supabase.from("products").select("*"),
-        supabase.from("production_runs").select("*"),
-        supabase.from("customers").select("*"),
-        supabase.from("sales_orders").select("*"),
-        supabase.from("spoilage").select("*"),
-        supabase.from("journal_entries").select("*"),
-        supabase.from("operating_expenses").select("*"),
-        supabase.from("fixed_assets").select("*"),
-        supabase.from("equity_transactions").select("*"),
-        supabase.from("loans").select("*"),
+        supabase.from("suppliers").select("*").eq("org_id", orgId),
+        supabase.from("supply_batches").select("*").eq("org_id", orgId),
+        supabase.from("products").select("*").eq("org_id", orgId),
+        supabase.from("production_runs").select("*").eq("org_id", orgId),
+        supabase.from("customers").select("*").eq("org_id", orgId),
+        supabase.from("sales_orders").select("*").eq("org_id", orgId),
+        supabase.from("spoilage").select("*").eq("org_id", orgId),
+        supabase.from("journal_entries").select("*").eq("org_id", orgId),
+        supabase.from("operating_expenses").select("*").eq("org_id", orgId),
+        supabase.from("fixed_assets").select("*").eq("org_id", orgId),
+        supabase.from("equity_transactions").select("*").eq("org_id", orgId),
+        supabase.from("loans").select("*").eq("org_id", orgId),
         supabase.from("chart_of_accounts").select("*"),
-        supabase.from("app_settings").select("*").eq("id", 1).single(),
+        supabase.from("app_settings").select("*").eq("org_id", orgId).maybeSingle(),
       ]);
       const settings = settingsRes.data ? toCamel(settingsRes.data) : {};
       setData({
@@ -128,7 +131,7 @@ export function useSupabaseDataSource() {
       fetchingRef.current = false;
       setLoaded(true);
     }
-  }, []);
+  }, [orgId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -145,7 +148,7 @@ export function useSupabaseDataSource() {
   };
   const fetchTable = useCallback(async (table) => {
     if (table === "app_settings") {
-      const { data: settingsRow, error } = await supabase.from("app_settings").select("*").eq("id", 1).single();
+      const { data: settingsRow, error } = await supabase.from("app_settings").select("*").eq("org_id", orgId).maybeSingle();
       if (error || !settingsRow) return;
       const settings = toCamel(settingsRow);
       setData((d) => ({
@@ -166,28 +169,44 @@ export function useSupabaseDataSource() {
     }
     const key = KEY_BY_TABLE[table];
     if (!key) return;
-    const { data: rows, error } = await supabase.from(table).select("*");
+    let query = supabase.from(table).select("*");
+    if (table !== "chart_of_accounts") query = query.eq("org_id", orgId);
+    const { data: rows, error } = await query;
     if (error) { console.error(`Fabrica: refetch of ${table} failed`, error); return; }
     setData((d) => ({ ...d, [key]: (rows || []).map(toCamel) }));
-  }, []);
+  }, [orgId]);
 
   // Any change from any device — including this one, on another tab —
   // triggers a refetch of just that one table, which is what actually
   // makes every screen stay in sync across systems without re-pulling
   // data nothing changed.
+  //
+  // The channel hears changes from every organisation this login is
+  // allowed to see (a super admin can see all of them), so each event is
+  // checked and ignored unless it belongs to the organisation currently
+  // open. Delete events only carry the row's id, so those are matched
+  // against what's already on screen.
   useEffect(() => {
-    const channel = supabase.channel("fabrica-sync");
-    for (const table of [...Object.values(TABLES), "app_settings", "chart_of_accounts"]) {
-      channel.on("postgres_changes", { event: "*", schema: "public", table }, () => fetchTable(table));
+    const channel = supabase.channel(`fabrica-sync-${orgId}`);
+    for (const table of [...Object.values(TABLES), "app_settings"]) {
+      channel.on("postgres_changes", { event: "*", schema: "public", table }, (payload) => {
+        if (payload.eventType === "DELETE") {
+          const key = KEY_BY_TABLE[table];
+          const id = payload.old?.id;
+          if (key && id && (dataRef.current[key] || []).some((r) => r.id === id)) fetchTable(table);
+          return;
+        }
+        if (payload.new?.org_id === orgId) fetchTable(table);
+      });
     }
     channel.subscribe();
     return () => supabase.removeChannel(channel);
-  }, [fetchTable]);
+  }, [fetchTable, orgId]);
 
   const add = async (key, record) => {
     const table = TABLES[key];
     if (!table) return { ok: false, error: "Unknown table" };
-    const { data: inserted, error } = await supabase.from(table).insert(toSnake(record)).select().single();
+    const { data: inserted, error } = await supabase.from(table).insert({ ...toSnake(record), org_id: orgId }).select().single();
     if (error) {
       console.error(`Fabrica: insert into ${table} failed`, error);
       setWriteError(friendlyError(error, "save"));
@@ -202,7 +221,7 @@ export function useSupabaseDataSource() {
     const table = TABLES[key];
     if (!table) return { ok: false, error: "Unknown table" };
     setData((d) => ({ ...d, [key]: d[key].map((r) => (r.id === id ? { ...r, ...patch } : r)) })); // optimistic
-    const { error } = await supabase.from(table).update(toSnake(patch)).eq("id", id);
+    const { error } = await supabase.from(table).update(toSnake(patch)).eq("id", id).eq("org_id", orgId);
     if (error) {
       console.error(`Fabrica: update ${table} failed`, error);
       setWriteError(friendlyError(error, "update"));
@@ -217,7 +236,7 @@ export function useSupabaseDataSource() {
     const table = TABLES[key];
     if (!table) return { ok: false, error: "Unknown table" };
     setData((d) => ({ ...d, [key]: d[key].filter((r) => r.id !== id) })); // optimistic
-    const { error } = await supabase.from(table).delete().eq("id", id);
+    const { error } = await supabase.from(table).delete().eq("id", id).eq("org_id", orgId);
     if (error) {
       console.error(`Fabrica: delete from ${table} failed`, error);
       setWriteError(friendlyError(error, "delete"));
@@ -230,7 +249,7 @@ export function useSupabaseDataSource() {
 
   const updateSettings = async (patch) => {
     setData((d) => ({ ...d, ...patch })); // optimistic
-    const { error } = await supabase.from("app_settings").update(toSnake(patch)).eq("id", 1);
+    const { error } = await supabase.from("app_settings").update(toSnake(patch)).eq("org_id", orgId);
     if (error) {
       console.error("Fabrica: settings update failed", error);
       setWriteError(friendlyError(error, "save"));
@@ -276,12 +295,12 @@ export function useSupabaseDataSource() {
 
   const clearAllData = async () => {
     for (const table of Object.values(TABLES)) {
-      await supabase.from(table).delete().not("id", "is", null);
+      await supabase.from(table).delete().eq("org_id", orgId);
     }
     await supabase.from("app_settings").update(toSnake({
       branding: DEFAULTS.branding, currency: DEFAULTS.currency, segments: DEFAULTS.segments,
       wholesaleSubCategories: DEFAULTS.wholesaleSubCategories, expenseCategories: DEFAULTS.expenseCategories, customUnits: {}, themes: {},
-    })).eq("id", 1);
+    })).eq("org_id", orgId);
     fetchAll();
   };
 
